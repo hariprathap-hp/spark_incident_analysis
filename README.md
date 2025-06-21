@@ -21,7 +21,7 @@ A FastAPI application that uses AI agents to find LinkedIn profiles and generate
 
 1. **Clone the repository**
    ```bash
-   git clone https://github.com/hariprathap-hp/langchain_lin
+   git clone https://github.com/hariprathap-hp/langchain_lin/tree/LinkedIn
    cd langchain_lin & git checkout LinkedIn
    ```
 
