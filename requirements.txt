@@ -1,0 +1,12 @@
+# Minimal working requirements for PDF + LangChain + Pinecone
+langchain
+langchain-openai
+langchain-community
+pypdf
+pinecone-client
+openai
+streamlit
+
+# Optional extras
+beautifulsoup4
+tiktoken
