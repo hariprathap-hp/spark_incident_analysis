@@ -1,34 +1,61 @@
-# Ice Breaker - LinkedIn Profile Analyzer
+# 📚 AI Documentation Assistant
 
-A FastAPI application that uses AI agents to find LinkedIn profiles and generate personalized summaries and interesting facts about people. Perfect for networking, sales outreach, or getting to know someone before a meeting!
+An intelligent documentation search and Q&A system built with LangChain, OpenAI, and Pinecone. Ask questions about your technical documentation in natural language and get accurate, contextual answers with source citations.
 
-## 🚀 Features
+## 🎯 Features
 
-- **Smart LinkedIn Search**: Uses AI agents to automatically find LinkedIn profiles by name
-- **Profile Analysis**: Generates concise summaries and interesting facts from LinkedIn data
-- **Web Interface**: Clean, easy-to-use web interface
-- **AI-Powered**: Leverages OpenAI GPT models and LangChain agents
-- **Mock Mode**: Development-friendly mode that uses sample data to avoid API costs
+- **Semantic Document Search** - Find relevant information using natural language queries
+- **Cost-Optimized** - Smart retrieval strategies to minimize OpenAI API costs
+- **Multi-Format Support** - Process PDF documents from Confluence exports
+- **Source Attribution** - Track which documents contain the answers
+- **Real-time Cost Tracking** - Monitor API usage and remaining budget
+- **Streamlit Web Interface** - User-friendly chat-based interaction
+- **Production Ready** - Optimized for performance and scalability
 
-## 📋 Prerequisites
+## 🏗️ Architecture
 
-- Python 3.8+
-- OpenAI API Key
-- Tavily API Key (for web search)
-- Optional: LangSmith API Key (for debugging/monitoring)
+```
+┌─────────────────┐    ┌──────────────────┐    ┌─────────────────┐
+│   Streamlit UI  │───▶│  Documentation   │───▶│   OpenAI GPT    │
+│                 │    │    Assistant     │    │   (Answer Gen)  │
+└─────────────────┘    └──────────────────┘    └─────────────────┘
+                              │
+                              ▼
+                       ┌──────────────────┐
+                       │   Pinecone DB    │
+                       │ (Vector Storage) │
+                       └──────────────────┘
+                              ▲
+                              │
+                       ┌──────────────────┐
+                       │  HuggingFace     │
+                       │  Embeddings      │
+                       │     (FREE)       │
+                       └──────────────────┘
+```
 
-## 🛠️ Installation
+## 🚀 Quick Start
+
+### Prerequisites
+
+- Python 3.10+
+- OpenAI API key
+- Pinecone account and API key
+- Git
+
+### Installation
 
 1. **Clone the repository**
    ```bash
-   git clone https://github.com/hariprathap-hp/langchain_lin/tree/LinkedIn
-   cd langchain_lin & git checkout LinkedIn
+   git clone https://github.com/yourusername/ai-documentation-assistant.git
+   cd ai-documentation-assistant
    ```
 
-2. **Create and activate virtual environment**
+2. **Create virtual environment**
    ```bash
-   python3 -m venv myenv
-   source myenv/bin/activate  # On Windows: myenv\Scripts\activate
+   python -m venv myenv
+   source myenv/bin/activate  # Linux/Mac
+   # myenv\Scripts\activate   # Windows
    ```
 
 3. **Install dependencies**
@@ -37,172 +64,254 @@ A FastAPI application that uses AI agents to find LinkedIn profiles and generate
    ```
 
 4. **Set up environment variables**
-   
-   Create a `.env` file in the root directory:
    ```bash
-   cp .env.example .env  # If example exists, or create manually
-   ```
+   # Create .env file
+   cp .env.example .env
    
-   Add your API keys to `.env`:
-   ```
-   OPENAI_API_KEY=your_openai_api_key_here
-   TAVILY_API_KEY=your_tavily_api_key_here
-   LANGCHAIN_API_KEY=your_langsmith_api_key_here (optional)
-   LANGSMITH_TRACING=true
-   LANGCHAIN_PROJECT=Ice Breaker
+   # Edit .env with your API keys
+   OPENAI_API_KEY=sk-proj-your-openai-key-here
+   PINECONE_API_KEY=your-pinecone-api-key
+   PINECONE_ENVIRONMENT=your-pinecone-environment
+   PINECONE_INDEX_NAME=langchain-doc-index-hf
    ```
 
-## 🔑 Getting API Keys
-
-### OpenAI API Key (Required)
-1. Go to [OpenAI Platform](https://platform.openai.com/api-keys)
-2. Create an account or sign in
-3. Generate a new API key
-4. Add billing information (pay-per-use)
-
-### Tavily API Key (Required)
-1. Visit [Tavily](https://tavily.com/)
-2. Sign up for an account
-3. Get your API key from the dashboard
-4. Tavily provides web search capabilities for finding LinkedIn profiles
-
-### LangSmith API Key (Optional)
-1. Go to [LangSmith](https://smith.langchain.com/)
-2. Create an account
-3. Generate API key for debugging and monitoring (optional but recommended for development)
-
-## 🚀 Running the Application
-
-1. **Start the FastAPI server**
+5. **Create Pinecone index**
    ```bash
-   python app.py
+   # Create index with 384 dimensions for HuggingFace embeddings
+   python scripts/create_pinecone_index.py
    ```
-   
-   Or alternatively:
+
+6. **Ingest your documents**
    ```bash
-   uvicorn app:app --host 0.0.0.0 --port 8000 --reload
+   # Place PDF files in sky-document-builder/ directory
+   python backend/ingestion.py
    ```
 
-2. **Access the application**
-   - Open your browser and go to: `http://localhost:8000`
-   - Enter a person's name in the form
-   - Click "Generate Ice Breaker" to get their profile summary
-
-3. **API Documentation**
-   - FastAPI automatically generates API docs at: `http://localhost:8000/docs`
+7. **Run the application**
+   ```bash
+   streamlit run main.py
+   ```
 
 ## 📁 Project Structure
 
 ```
-hari_ice_breaker/
-├── app.py                          # FastAPI main application
-├── ice_breaker.py                  # Core ice breaker logic
-├── output_parsers.py               # Pydantic models for structured output
-├── agents/
+ai-documentation-assistant/
+├── README.md                   # This file
+├── requirements.txt           # Python dependencies
+├── .env.example              # Environment variables template
+├── .gitignore               # Git ignore rules
+├── main.py                  # Streamlit web interface
+│
+├── backend/                 # Core logic
 │   ├── __init__.py
-│   └── linkedin_lookup_agent.py    # AI agent for LinkedIn profile search
-├── tools/
-│   ├── __init__.py
-│   └── tools.py                    # Search tools using Tavily
-├── third_parties/
-│   └── linkedin.py                 # LinkedIn profile scraping utilities
-├── templates/
-│   └── index.html                  # Web interface template
-├── requirements.txt                # Python dependencies
-├── .env                           # Environment variables (create this)
-└── README.md                      # This file
+│   ├── core.py             # Basic LLM function
+│   ├── optimized_core.py   # Optimized assistant class
+│   └── ingestion.py        # Document processing pipeline
+│
+├── sky-document-builder/    # Your PDF documents
+│   ├── document1.pdf
+│   ├── document2.pdf
+│   └── ...
+│
+├── scripts/                # Utility scripts
+│   ├── create_pinecone_index.py
+│   ├── test_connection.py
+│   └── cost_calculator.py
+│
+└── docs/                   # Additional documentation
+    ├── SETUP.md
+    ├── API_COSTS.md
+    └── TROUBLESHOOTING.md
 ```
 
-## 🔒 Security Notes
+## 🔧 Configuration
 
-- **Never commit your `.env` file** - it contains sensitive API keys
-- The `.env` file is already in `.gitignore` to prevent accidental commits
-- API keys in this project are used for:
-  - OpenAI: AI model access (charges apply per token)
-  - Tavily: Web search functionality
-  - LangSmith: Optional debugging/monitoring
-- Mock mode is enabled by default to prevent unnecessary API charges during development
+### Environment Variables
 
-## 🧪 Development Mode
+| Variable | Description | Required |
+|----------|-------------|----------|
+| `OPENAI_API_KEY` | OpenAI API key for GPT responses | ✅ Yes |
+| `PINECONE_API_KEY` | Pinecone API key for vector storage | ✅ Yes |
+| `PINECONE_ENVIRONMENT` | Pinecone environment (e.g., us-east-1-aws) | ✅ Yes |
+| `PINECONE_INDEX_NAME` | Name of your Pinecone index | No (default: langchain-doc-index-hf) |
 
-The application runs in **mock mode** by default, which:
-- Uses sample LinkedIn data from a GitHub Gist instead of real scraping
-- Prevents API charges for LinkedIn data scraping
-- Still uses OpenAI and Tavily APIs for search and analysis
+### Pinecone Index Setup
 
-To disable mock mode, edit `ice_breaker.py` and change:
+**For HuggingFace Embeddings (Free):**
+- **Dimensions**: 384
+- **Metric**: cosine
+- **Index Name**: langchain-doc-index-hf
+
+**For OpenAI Embeddings (Paid):**
+- **Dimensions**: 1536
+- **Metric**: cosine
+- **Index Name**: langchain-doc-index
+
+## 💰 Cost Optimization
+
+### Current Cost Structure
+- **Average cost per query**: ~$0.0007
+- **With $5 budget**: ~7,000 queries
+- **Daily usage (50 queries)**: ~$0.035/day
+
+### Optimization Features
+- **Smart k-selection**: Dynamically choose 2-4 documents based on query complexity
+- **HuggingFace embeddings**: Free local embeddings (vs paid OpenAI embeddings)
+- **Batch processing**: Efficient document ingestion
+- **Cost tracking**: Real-time budget monitoring
+
+### Cost Breakdown
+```
+Input tokens:  ~1,100 tokens (k=2) | ~1,900 tokens (k=4)
+Output tokens: ~300 tokens
+Cost per query: $0.0006 (k=2) | $0.0007 (k=4)
+```
+
+## 📖 Usage Examples
+
+### Basic Query
 ```python
-linkedin_data = scrape_linkedin_profile(
-    linkedin_profile_url=linkedin_username, mock=True  # Change to False
-)
+# Ask about SIP protocol
+"What is SIP INVITE message?"
+
+# Result: Detailed explanation with source citations
 ```
 
-## 📝 Usage Examples
+### Complex Query
+```python
+# Compare protocols
+"Compare SIP vs H.323 protocols"
 
-1. **Basic Usage**: Enter "Eden Marco" to see the sample profile analysis
-2. **Real Profiles**: The AI agent will search for and analyze any public LinkedIn profile
-3. **API Access**: Send POST requests to `/process` with form data containing the name
+# Result: Comprehensive comparison using multiple document sources
+```
 
-## 🔧 Troubleshooting
+### Procedural Query
+```python
+# Configuration steps
+"How to configure AGW step by step?"
+
+# Result: Step-by-step instructions from documentation
+```
+
+## 🛠️ Development
+
+### Running Tests
+```bash
+# Test document ingestion
+python backend/test_ingestion.py
+
+# Test API connections
+python scripts/test_connection.py
+
+# Calculate costs
+python scripts/cost_calculator.py
+```
+
+### Adding New Documents
+1. Place PDF files in `sky-document-builder/` directory
+2. Run ingestion: `python backend/ingestion.py`
+3. Documents are automatically processed and indexed
+
+### Customizing the Assistant
+```python
+# Modify retrieval parameters in backend/optimized_core.py
+class DocumentationAssistant:
+    def __init__(self):
+        self.k_value = 2  # Number of documents to retrieve
+        self.chunk_size = 600  # Text chunk size
+        self.chunk_overlap = 50  # Overlap between chunks
+```
+
+## 🔍 Troubleshooting
 
 ### Common Issues
 
-1. **Import Errors**
-   ```bash
-   # Run from project root directory
-   python -m agents.linkedin_lookup_agent
-   ```
-
-2. **Pydantic Version Conflicts**
-   ```bash
-   pip install pydantic --upgrade
-   ```
-
-3. **Missing Templates Directory**
-   ```bash
-   mkdir templates
-   # Make sure index.html exists in templates/
-   ```
-
-4. **API Key Issues**
-   - Ensure all required API keys are in `.env` file
-   - Check API key format and validity
-   - Verify billing setup for OpenAI
-
-### Environment Variables Check
+**1. "Missing API keys" Error**
 ```bash
-# Test if environment variables are loaded
-python -c "from dotenv import load_dotenv; load_dotenv(); import os; print('OpenAI Key:', 'SET' if os.getenv('OPENAI_API_KEY') else 'MISSING')"
+# Check .env file exists and contains keys
+cat .env
 ```
+
+**2. "No documents found" Error**
+```bash
+# Verify Pinecone index exists and has data
+python scripts/check_pinecone_status.py
+```
+
+**3. "Import errors" in Streamlit**
+```bash
+# Ensure backend directory is in Python path
+export PYTHONPATH="${PYTHONPATH}:./backend"
+```
+
+**4. High costs**
+- Reduce k value (documents retrieved)
+- Use shorter, more specific queries
+- Enable cost confirmation prompts
+
+### Performance Issues
+- **Slow responses**: Check internet connection to OpenAI/Pinecone
+- **High memory usage**: Reduce batch size in ingestion
+- **Import errors**: Verify all dependencies installed
+
+## 📊 Monitoring
+
+### Built-in Metrics
+- Total queries made
+- Total cost incurred
+- Average cost per query
+- Remaining budget
+- Response times
+
+### Cost Alerts
+The system automatically tracks costs and provides warnings when approaching budget limits.
 
 ## 🤝 Contributing
 
-1. Fork the repository
-2. Create a feature branch: `git checkout -b feature-name`
-3. Make your changes and test thoroughly
-4. Commit changes: `git commit -am 'Add new feature'`
-5. Push to the branch: `git push origin feature-name`
-6. Submit a pull request
+1. **Fork the repository**
+2. **Create feature branch**: `git checkout -b feature/amazing-feature`
+3. **Commit changes**: `git commit -m 'Add amazing feature'`
+4. **Push to branch**: `git push origin feature/amazing-feature`
+5. **Open Pull Request**
 
-## 📄 License
+### Development Setup
+```bash
+# Install development dependencies
+pip install -r requirements-dev.txt
 
-This project is licensed under the MIT License - see the LICENSE file for details.
+# Run pre-commit hooks
+pre-commit install
 
-## ⚠️ Disclaimer
+# Run tests
+pytest tests/
+```
 
-- This tool is for educational and professional networking purposes only
-- Respect LinkedIn's terms of service and rate limits
-- Be mindful of privacy when analyzing public profiles
-- API usage charges apply for OpenAI and other services
+## 📝 License
 
-## 🆘 Support
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
-If you encounter issues:
-1. Check the troubleshooting section above
-2. Review FastAPI logs for error details
-3. Ensure all dependencies are installed correctly
-4. Verify API keys are valid and have sufficient credits
+## 🙏 Acknowledgments
+
+- **LangChain** - LLM application framework
+- **OpenAI** - GPT models for response generation
+- **Pinecone** - Vector database for document storage
+- **HuggingFace** - Free embedding models
+- **Streamlit** - Web interface framework
+
+## 📞 Support
+
+- **Issues**: [GitHub Issues](https://github.com/yourusername/ai-documentation-assistant/issues)
+- **Discussions**: [GitHub Discussions](https://github.com/yourusername/ai-documentation-assistant/discussions)
+- **Documentation**: [Wiki](https://github.com/yourusername/ai-documentation-assistant/wiki)
+
+## 🔮 Roadmap
+
+- [ ] **Multi-language support** - Support for non-English documents
+- [ ] **Advanced filters** - Filter by document type, date, author
+- [ ] **Conversation memory** - Remember previous questions in chat
+- [ ] **Document upload UI** - Upload PDFs through web interface
+- [ ] **Analytics dashboard** - Detailed usage and cost analytics
+- [ ] **API endpoints** - REST API for integration
+- [ ] **Docker deployment** - Containerized deployment option
 
 ---
-
-**Happy networking! 🌐**
