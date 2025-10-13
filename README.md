@@ -52,12 +52,43 @@ The dataset consists of ~20 structured Spark incident reports (executor lost, sh
 - Converts this assistant into a **real-time Spark Reliability Copilot**
 
 ### 2️⃣ **Hybrid Search**
-- Combine **dense (embeddings)** + **sparse (keyword/BM25)** retrieval
-- Improves recall for queries mixing technical terms + natural language
+- Combine dense vector search (semantic similarity via OpenAI embeddings) with sparse lexical search (BM25 or keyword-based retrieval).
+
+Benefits:
+- Handles both natural language and technical keyword queries (e.g., “GC overhead limit exceeded” or “OOM executor”).
+- Increases recall — retrieves relevant results even when exact phrasing differs.
+- Implementation: Use Qdrant Hybrid Search or LangChain’s MultiVectorRetriever to merge embedding and keyword scores.
 
 ### 3️⃣ **Re-ranking**
-- Use **cross-encoder reranking** (e.g., `bge-reranker-large`) on top of Qdrant results
-- Boosts precision by scoring top-10 retrieved chunks before sending to GPT
+- Apply a reranking model (e.g., bge-reranker-large or Cohere reranker) to re-score the top retrieved chunks.
+
+Benefits:
+- Increases precision by pushing the most relevant chunk to the top.
+- Provides context clarity — especially when multiple incidents mention similar errors.
+
+Implementation:
+- Retrieve top 10 chunks from Qdrant
+- Pass them through the reranker model
+- Feed top 3–5 re-ranked results into GPT-4 for final answer synthesis.
+
+### 4 Metadata Filtering
+
+Introduce metadata filters such as:
+- cluster_name, error_type, incident_date, severity
+
+Benefits:
+- Enables targeted search, e.g.:
+- “Incidents from Cluster-B in March 2024”
+- “Only OutOfMemoryError incidents”
+- Reduces irrelevant retrievals and speeds up query time.
+
+Implementation:
+- Store metadata in Qdrant during ingestion
+- Use search_kwargs={"filter": {"must": [{"key": "cluster", "match": {"value": "Cluster-B"}}]}}
+
+4️⃣ Evaluation Metrics (Post-Improvement)
+- Implement Precision@K, Recall@K, and MRR to quantify improvements from hybrid search and reranking.
+- Use a labeled evaluation dataset (query → expected incident IDs) for benchmarking.
 
 ---
 
