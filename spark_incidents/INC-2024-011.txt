@@ -1,0 +1,10 @@
+Incident ID: INC-2024-011
+Date: 2024-03-25
+Cluster: Spark-Cluster-D
+Application: Data Validation
+Error Summary: GC overhead limit exceeded
+Root Cause: Driver spent 90% time in GC due to small heap and large shuffle metadata.
+Resolution:
+  - Increased executor heap size and tuned GC parameters.
+  - Migrated to G1GC for better memory efficiency.
+Key Learnings: Review metrics in Spark UI and improve monitoring for early detection.

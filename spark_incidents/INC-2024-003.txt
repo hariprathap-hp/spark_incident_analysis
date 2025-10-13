@@ -1,0 +1,11 @@
+Incident ID: INC-2024-003
+Date: 2024-03-14
+Cluster: Spark-Batch-Cluster-C
+Application: Customer Churn Model Training
+Error Summary: java.lang.OutOfMemoryError: Java heap space
+Root Cause: Driver collected entire RDD into memory for model fitting step.
+Resolution:
+  - Replaced .collect() with .mapPartitions() for incremental processing.
+  - Used DataFrame API with aggregations instead of RDD reduce.
+  - Increased driver memory to 8g temporarily.
+Key Learnings: Avoid collect() operations on large RDDs; leverage DataFrame transformations.

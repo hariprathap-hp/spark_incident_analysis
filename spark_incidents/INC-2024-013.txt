@@ -1,0 +1,10 @@
+Incident ID: INC-2024-013
+Date: 2024-03-27
+Cluster: Spark-Cluster-D
+Application: Data Validation
+Error Summary: Corrupted shuffle block detected
+Root Cause: Corrupt shuffle index files due to abrupt node termination.
+Resolution:
+  - Enabled shuffle file replication.
+  - Configured spark.cleaner.periodicGC.interval for cleanup.
+Key Learnings: Review metrics in Spark UI and improve monitoring for early detection.

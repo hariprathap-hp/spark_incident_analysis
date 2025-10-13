@@ -1,0 +1,10 @@
+Incident ID: INC-2024-004
+Date: 2024-03-18
+Cluster: Spark-Cluster-C
+Application: ETL Job
+Error Summary: Network timeout during shuffle fetch
+Root Cause: Network congestion between worker and shuffle service.
+Resolution:
+  - Increased network timeout and enabled retry mechanism.
+  - Validated connectivity using netstat and iostat metrics.
+Key Learnings: Review metrics in Spark UI and improve monitoring for early detection.

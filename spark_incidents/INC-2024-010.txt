@@ -1,0 +1,10 @@
+Incident ID: INC-2024-010
+Date: 2024-03-24
+Cluster: Spark-Cluster-C
+Application: Streaming Pipeline
+Error Summary: TaskKilledException: Stage aborted due to speculative execution conflicts
+Root Cause: Speculative tasks killed original executors due to race condition.
+Resolution:
+  - Disabled speculative execution for this workload.
+  - Monitored task runtime variance to verify improvement.
+Key Learnings: Review metrics in Spark UI and improve monitoring for early detection.

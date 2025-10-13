@@ -1,0 +1,10 @@
+Incident ID: INC-2024-005
+Date: 2024-03-19
+Cluster: Spark-Cluster-A
+Application: Streaming Pipeline
+Error Summary: YarnContainerExit: Exit code 143
+Root Cause: Node terminated by YARN for exceeding memory limit.
+Resolution:
+  - Adjusted YARN container memory overhead.
+  - Reduced parallelism to prevent memory exhaustion.
+Key Learnings: Review metrics in Spark UI and improve monitoring for early detection.

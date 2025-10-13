@@ -1,0 +1,10 @@
+Incident ID: INC-2024-018
+Date: 2024-04-01
+Cluster: Spark-Cluster-A
+Application: Streaming Pipeline
+Error Summary: Job aborted due to stage failure
+Root Cause: Stage retried multiple times due to executor instability.
+Resolution:
+  - Enabled dynamic allocation with idle timeout.
+  - Upgraded to Spark 3.4 to fix known retry bug.
+Key Learnings: Review metrics in Spark UI and improve monitoring for early detection.

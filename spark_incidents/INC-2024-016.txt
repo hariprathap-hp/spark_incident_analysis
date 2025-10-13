@@ -1,0 +1,10 @@
+Incident ID: INC-2024-016
+Date: 2024-03-30
+Cluster: Spark-Cluster-C
+Application: Data Validation
+Error Summary: Checkpoint directory inaccessible
+Root Cause: Checkpoint directory mounted read-only due to NFS issue.
+Resolution:
+  - Reconfigured NFS mount with write permissions.
+  - Added fallback local checkpointing.
+Key Learnings: Review metrics in Spark UI and improve monitoring for early detection.

@@ -10,3 +10,5 @@ streamlit
 # Optional extras
 beautifulsoup4
 tiktoken
+qdrant-client
+langchain-qdrant

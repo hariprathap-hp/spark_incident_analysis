@@ -1,0 +1,11 @@
+Incident ID: INC-2024-001
+Date: 2024-02-12
+Cluster: Spark-Prod-Cluster-A
+Application: Daily Aggregation Job
+Error Summary: ExecutorLostFailure: Executor exited due to memory pressure
+Root Cause: Highly skewed data in user_events table; a single user_id consumed most of the partition memory.
+Resolution:
+  - Applied salting on user_id to distribute records evenly.
+  - Increased executor memory overhead from 1g to 2g.
+  - Validated partition sizes post-salting using Spark UI.
+Key Learnings: Monitor shuffle metrics and partition sizes to detect skew early.

@@ -1,0 +1,10 @@
+Incident ID: INC-2024-012
+Date: 2024-03-26
+Cluster: Spark-Cluster-A
+Application: Model Training
+Error Summary: SparkContext terminated unexpectedly
+Root Cause: Cluster resource preemption by higher-priority jobs.
+Resolution:
+  - Added fair scheduler weights to prevent starvation.
+  - Reserved dedicated queue for latency-critical jobs.
+Key Learnings: Review metrics in Spark UI and improve monitoring for early detection.

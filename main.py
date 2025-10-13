@@ -1,7 +1,7 @@
 import streamlit as st
-from backend.optimized_core import run_llm
+from backend.core_qdrant import run_llm
 
-st.header("LangChain🦜🔗 SIP Protocol - Helper Bot")
+st.header("🚀 Spark Incident Analysis Assistant (OpenAI + Qdrant)")
 
 prompt = st.text_input("Prompt", placeholder="Enter your message here...")
 
@@ -12,7 +12,7 @@ if "chat_answers_history" not in st.session_state:
 
 if prompt:
     with st.spinner("Generating Response"):
-        generated_response = run_llm(query=prompt, confirm_cost=True)
+        generated_response = run_llm(query=prompt)
         formatted_response = (
             f"{generated_response['answer']}"
         )

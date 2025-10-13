@@ -1,0 +1,10 @@
+Incident ID: INC-2024-017
+Date: 2024-03-31
+Cluster: Spark-Cluster-B
+Application: Streaming Pipeline
+Error Summary: FileNotFoundException: missing parquet part file
+Root Cause: S3 eventual consistency caused missing part file during read.
+Resolution:
+  - Introduced S3 consistency check before read operations.
+  - Configured spark.sql.files.ignoreMissingFiles=true.
+Key Learnings: Review metrics in Spark UI and improve monitoring for early detection.

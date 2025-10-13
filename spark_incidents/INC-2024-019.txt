@@ -1,0 +1,10 @@
+Incident ID: INC-2024-019
+Date: 2024-04-02
+Cluster: Spark-Cluster-C
+Application: Model Training
+Error Summary: Timeout waiting for task heartbeat
+Root Cause: Task heartbeat lost due to network jitter on Kubernetes executor pods.
+Resolution:
+  - Extended task timeout threshold and improved monitoring.
+  - Deployed heartbeat monitor daemon for executor health.
+Key Learnings: Review metrics in Spark UI and improve monitoring for early detection.

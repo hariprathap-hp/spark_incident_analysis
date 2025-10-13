@@ -6,3 +6,6 @@ activate-venv:
 
 update-pip:
 	pip install --upgrade pipenv
+
+run-app:
+	streamlit run main.py
