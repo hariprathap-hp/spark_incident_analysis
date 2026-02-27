@@ -1,10 +1,16 @@
 Incident ID: INC-2024-004
-Date: 2024-03-18
+Date: 2024-02-10
 Cluster: Spark-Cluster-C
-Application: ETL Job
-Error Summary: Network timeout during shuffle fetch
-Root Cause: Network congestion between worker and shuffle service.
+Application: Reporting
+Error Summary: reports not generated this morning. finance team blocked
+Root Cause: Collect() call on large dataframe
 Resolution:
-  - Increased network timeout and enabled retry mechanism.
-  - Validated connectivity using netstat and iostat metrics.
-Key Learnings: Review metrics in Spark UI and improve monitoring for early detection.
+  - Collect() with distributed parquet write
+Key Learnings: Never collect 50gb to driver
+Work Notes:
+driver heap dump shows 48GB usage
+found collect() call on large dataframe
+this is an anti-pattern, should never collect 50GB to driver
+replaced collect() with distributed parquet write
+reports now generating correctly
+added code review rule: no collect() on large datasets

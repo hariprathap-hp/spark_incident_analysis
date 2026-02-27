@@ -9,3 +9,10 @@ update-pip:
 
 run-app:
 	streamlit run main.py
+
+start-qdrant:
+	docker run -d \
+  --name qdrant \
+  -p 6333:6333 \
+  -v $(pwd)/qdrant_storage:/qdrant/storage \
+  qdrant/qdrant

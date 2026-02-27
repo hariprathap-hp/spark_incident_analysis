@@ -1,10 +1,17 @@
 Incident ID: INC-2024-005
-Date: 2024-03-19
-Cluster: Spark-Cluster-A
-Application: Streaming Pipeline
-Error Summary: YarnContainerExit: Exit code 143
-Root Cause: Node terminated by YARN for exceeding memory limit.
+Date: 2024-02-20
+Cluster: Spark-Cluster-B
+Application: Streaming
+Error Summary: kafka lag alert firing. real-time dashboard showing stale data
+Root Cause: See work notes for details
 Resolution:
-  - Adjusted YARN container memory overhead.
-  - Reduced parallelism to prevent memory exhaustion.
-Key Learnings: Review metrics in Spark UI and improve monitoring for early detection.
+  - Parallelism from 10 to 30 partitions
+Key Learnings: Need proper lag monitoring setup
+Work Notes:
+consumer lag at 500k messages and growing
+processing time 800ms per batch, arrival rate much higher
+checked cluster, executors underutilized
+increased parallelism from 10 to 30 partitions
+optimized json deserialization, 3x faster now
+lag decreasing, should clear in 2 hours
+note: need proper lag monitoring setup

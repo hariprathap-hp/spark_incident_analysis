@@ -1,11 +1,19 @@
 Incident ID: INC-2024-003
-Date: 2024-03-14
-Cluster: Spark-Batch-Cluster-C
-Application: Customer Churn Model Training
-Error Summary: java.lang.OutOfMemoryError: Java heap space
-Root Cause: Driver collected entire RDD into memory for model fitting step.
+Date: 2024-02-01
+Cluster: Spark-Cluster-A
+Application: ETL Job
+Error Summary: ETL stuck since last night. morning batch not completed. business impact high
+Root Cause: See work notes for details
 Resolution:
-  - Replaced .collect() with .mapPartitions() for incremental processing.
-  - Used DataFrame API with aggregations instead of RDD reduce.
-  - Increased driver memory to 8g temporarily.
-Key Learnings: Avoid collect() operations on large RDDs; leverage DataFrame transformations.
+  - Tom 11:00am - implemented salting on join key
+  - Lesson: enable aqe by default!
+  - Salting on join key
+Key Learnings: Enable aqe by default!
+Work Notes:
+job stuck at stage 4/7 for 6 hours
+checking shuffle metrics, 2 tasks taking forever
+classic skew problem, salting should fix
+implemented salting on join key
+also enabled AQE spark.sql.adaptive.enabled=true
+job completed in 45 mins after fix
+lesson: enable AQE by default!
