@@ -1,134 +1,171 @@
-# 🔥 Spark Incident Analysis Assistant
-**AI-powered assistant for analyzing Apache Spark incidents using LangChain, OpenAI, and Qdrant**
+# 🔥 Spark Insight Agent — Phase 2
+
+**Production-grade AI assistant for Apache Spark incident analysis.**
+Combines deterministic intelligence with LLM synthesis, multi-layer caching, and full cost tracking.
 
 ---
 
-## 🎯 Purpose
+## Architecture
 
-This project demonstrates a **Retrieval-Augmented Generation (RAG)** system that helps engineers analyze **Spark incident reports** efficiently.  
-Instead of reading through multiple logs or reports, users can query an assistant that retrieves the most relevant incidents and summarizes their root cause, resolutions, and key learnings.
-
----
-
-## ⚙️ Implementation Overview
-
-### 🔹 Architecture
-User Query ─► LangChain Retrieval Chain ─► Qdrant (Vector DB)
-│
-▼
-OpenAI (Embeddings + GPT-4)
-│
-▼
-Contextual Root Cause Explanation
-
-
-### 🔹 Components
-| Component | Purpose |
-|------------|----------|
-| **LangChain** | Handles text chunking, retrieval chain, and prompt orchestration |
-| **OpenAI** | Provides embeddings (`text-embedding-3-small`) and reasoning via `gpt-4-turbo` |
-| **Qdrant** | Vector database storing Spark incident chunks |
-| **Streamlit** | User interface for chat-based querying |
-
-### 🔹 Dataset
-The dataset consists of ~20 structured Spark incident reports (executor lost, shuffle failures, OOM errors, etc.) stored in `spark_incidents/`.
-
----
-
-## 💰 Current Cost Factor
-
-- **Embeddings**: `text-embedding-3-small` — ~$0.02 per 1,000,000 tokens  
-- **LLM Queries**: `gpt-4-turbo` — ~$0.01 per 1,000 input tokens, ~$0.03 per 1,000 output tokens  
-- A typical query costs **less than $0.005**  
-- HuggingFace embeddings can be used as a **free fallback** (by updating `USE_OPENAI=False`)
-
----
-
-## 🚀 Future Improvements
-
-### 1️⃣ **MCP Integration**
-- Integrate the [Kubeflow MCP for Spark History Server](https://github.com/kubeflow/mcp-apache-spark-history-server)
-- Enables querying live Spark job metadata (tasks, stages, metrics)
-- Converts this assistant into a **real-time Spark Reliability Copilot**
-
-### 2️⃣ **Hybrid Search**
-- Combine dense vector search (semantic similarity via OpenAI embeddings) with sparse lexical search (BM25 or keyword-based retrieval).
-
-Benefits:
-- Handles both natural language and technical keyword queries (e.g., “GC overhead limit exceeded” or “OOM executor”).
-- Increases recall — retrieves relevant results even when exact phrasing differs.
-- Implementation: Use Qdrant Hybrid Search or LangChain’s MultiVectorRetriever to merge embedding and keyword scores.
-
-### 3️⃣ **Re-ranking**
-- Apply a reranking model (e.g., bge-reranker-large or Cohere reranker) to re-score the top retrieved chunks.
-
-Benefits:
-- Increases precision by pushing the most relevant chunk to the top.
-- Provides context clarity — especially when multiple incidents mention similar errors.
-
-Implementation:
-- Retrieve top 10 chunks from Qdrant
-- Pass them through the reranker model
-- Feed top 3–5 re-ranked results into GPT-4 for final answer synthesis.
-
-### 4 Metadata Filtering
-
-Introduce metadata filters such as:
-- cluster_name, error_type, incident_date, severity
-
-Benefits:
-- Enables targeted search, e.g.:
-- “Incidents from Cluster-B in March 2024”
-- “Only OutOfMemoryError incidents”
-- Reduces irrelevant retrievals and speeds up query time.
-
-Implementation:
-- Store metadata in Qdrant during ingestion
-- Use search_kwargs={"filter": {"must": [{"key": "cluster", "match": {"value": "Cluster-B"}}]}}
-
-4️⃣ Evaluation Metrics (Post-Improvement)
-- Implement Precision@K, Recall@K, and MRR to quantify improvements from hybrid search and reranking.
-- Use a labeled evaluation dataset (query → expected incident IDs) for benchmarking.
+```
+User Query
+    │
+    ▼
+┌──────────────────────────────────────────────────────────────────┐
+│  1. QUERY CACHE  (exact-match, 1h TTL)                           │
+│     hit → return instantly ($0 cost)                             │
+└──────────────────────┬───────────────────────────────────────────┘
+                       │ miss
+    ▼
+┌──────────────────────────────────────────────────────────────────┐
+│  2. EMBEDDING LAYER  (text-embedding-3-small)                    │
+│     + Embedding Cache (SHA-256 content hash, 24h TTL)           │
+└──────────────────────┬───────────────────────────────────────────┘
+                       │
+    ▼
+┌──────────────────────────────────────────────────────────────────┐
+│  3. QDRANT SEARCH  (top-10 by cosine similarity)                 │
+│     Qdrant Cloud — collection: spark-incidents-openai            │
+└──────────────────────┬───────────────────────────────────────────┘
+                       │
+    ▼
+┌──────────────────────────────────────────────────────────────────┐
+│  4. DETERMINISTIC ANALYZER                                       │
+│     • Similarity scoring & spread (top-3 consistency)           │
+│     • Root-cause cluster detection (12-category regex taxonomy) │
+│     • Recurrence pattern flagging (≥2 occurrences)             │
+│     • Confidence score: weighted A+B+C+D (0.0 – 1.0)           │
+└──────────────────────┬───────────────────────────────────────────┘
+                       │
+          ┌────────────┴────────────┐
+          │                         │
+   confidence ≥ 0.70         confidence < 0.70
+          │                         │
+          ▼                         ▼
+   Structured Markdown        LLM Cache check
+   (no LLM, ~$0 cost)              │
+                            ┌───────┴────────┐
+                            │ hit            │ miss
+                            ▼                ▼
+                       cached answer    GPT-4o-mini call
+                                        (30min LLM cache)
+          │
+    ▼
+┌──────────────────────────────────────────────────────────────────┐
+│  5. EVALUATOR  — per-query JSONL log                             │
+│     tokens, cost, latency, confidence, path, cache hits         │
+└──────────────────────────────────────────────────────────────────┘
+          │
+    ▼
+Streamlit UI (chat + metrics panel + sidebar stats)
+```
 
 ---
 
-## 🧩 How to Run the App
+## Module Reference
 
-1️⃣ Install dependencies
+| Module | Purpose |
+|--------|---------|
+| `backend/config.py` | **Single source of truth** for all config values — models, thresholds, TTLs, cost rates. Load from `.env`. |
+| `backend/cache_manager.py` | **3-layer cache**: query cache, embedding cache, LLM response cache. In-memory + pickle persistence. |
+| `backend/deterministic_analyzer.py` | **Deterministic intelligence layer**: root-cause taxonomy, cluster detection, confidence scoring, answer generation without LLM. |
+| `backend/evaluator.py` | **Metrics tracking**: cost, latency p95, path distribution, cache hit rates. Appends JSONL. |
+| `backend/core_qdrant.py` | **Query pipeline**: wires all layers together. Phase 1 compatible return type. |
+| `backend/data_pipeline.py` | **Ingestion**: PostgreSQL → format → embed → Qdrant. Per-incident error handling. |
+| `main.py` | **Streamlit UI**: chat + metrics panel per response + sidebar session stats. |
+
+---
+
+## Cost Comparison
+
+| | Phase 1 | Phase 2 |
+|--|---------|---------|
+| **LLM model** | `gpt-4-turbo` ($10/$30 per 1M) | `gpt-4o-mini` ($0.15/$0.60 per 1M) |
+| **LLM calls** | Every query | Only when confidence < 0.70 |
+| **Caching** | None | 3 layers (query + embedding + LLM) |
+| **Typical query cost** | ~$0.005 | ~$0.00002 (deterministic) / ~$0.0002 (LLM) |
+| **Cost reduction** | — | **~25–250×** depending on query mix |
+
+---
+
+## Confidence Score Components
+
+```
+A. Top similarity score        weight 0.40  — how close is the best match?
+B. Score consistency (top-3)   weight 0.20  — are results tightly clustered?
+C. Root-cause cohesion         weight 0.25  — do results agree on the cause?
+D. Recurrence flag             weight 0.15  — is this a known repeat pattern?
+```
+
+When `A + B + C + D >= 0.70`, the deterministic layer returns a structured
+answer with zero LLM cost. The LLM is only invoked for genuinely ambiguous
+or novel queries.
+
+---
+
+## Quick Start
+
 ```bash
+# 1. Install dependencies
 pip install -r requirements.txt
 
-2️⃣ Set OpenAI key
-Create a .env file:
-   OPENAI_API_KEY=sk-your-api-key
+# 2. Create .env
+cat > .env <<EOF
+OPENAI_API_KEY=sk-...
+QDRANT_URL=https://your-cluster.qdrant.io
+QDRANT_API_KEY=your-qdrant-key
+DB_USER=postgres
+DB_PASSWORD=your-db-password
+EOF
 
-3️⃣ Start Qdrant locally
-docker run -p 6333:6333 qdrant/qdrant
+# 3. Ingest incidents from PostgreSQL
+python -m backend.data_pipeline
 
-4️⃣ Ingest incidents into Qdrant
-python ingestion_qdrant_openai.py
-
-5️⃣ Launch Streamlit app
+# 4. Launch Streamlit
 streamlit run main.py
+```
 
-Then open http://localhost:8501
+Open http://localhost:8501
 
-💬 Example Queries
-What caused the executor lost issue in incident INC-2024-001?
-Explain the resolution for shuffle fetch failures.
-List incidents related to OutOfMemoryError in Spark drivers.
-Summarize all incidents involving data skew.
-What are the key learnings from memory-related failures?
+---
 
-🧠 Summary
+## Example Queries
 
-This project showcases an end-to-end, locally deployable RAG assistant for analyzing Spark incidents.
-It combines:
+```
+What caused the executor lost issue in INC-2024-001?
+Show me all memory-related incidents
+What clusters are experiencing data skew?
+Summarize recurring OOM errors
+What are the key learnings from shuffle failures?
+```
 
-OpenAI reasoning (semantic understanding),
+---
 
-Qdrant retrieval (efficient similarity search), and
+## Metrics Log
 
-LangChain orchestration (retrieval + synthesis).
+Every query appends a JSON line to `metrics.jsonl`:
 
-With MCP, hybrid retrieval, and reranking, this can evolve into a production-grade Spark Reliability Copilot capable of reasoning over both historical incidents and live Spark job data.
+```json
+{
+  "timestamp": "2024-03-15T10:23:01.234Z",
+  "confidence": 0.82,
+  "path": "deterministic",
+  "model_used": null,
+  "embedding_tokens": 0,
+  "llm_input_tokens": 0,
+  "total_cost_usd": 0.0,
+  "latency_ms": 312.4,
+  "top_similarity": 0.913,
+  "clusters_detected": 1,
+  "query_cache_hit": false,
+  "embedding_cache_hit": true
+}
+```
+
+---
+
+## Phase Roadmap
+
+- **Phase 1** ✅ — Basic RAG: PostgreSQL → Qdrant → GPT-4-turbo → Streamlit
+- **Phase 2** ✅ — Deterministic intelligence + caching + cost tracking + evaluator
+- **Phase 3** 🔜 — Hybrid search (BM25 + dense), reranking, MCP Spark History Server integration

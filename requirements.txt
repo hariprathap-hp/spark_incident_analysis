@@ -1,14 +1,21 @@
-# Minimal working requirements for PDF + LangChain + Pinecone
-langchain
-langchain-openai
-langchain-community
-pypdf
-pinecone-client
-openai
-streamlit
+# Spark Insight Agent — Phase 2
+# Install: pip install -r requirements.txt
 
-# Optional extras
-beautifulsoup4
-tiktoken
-qdrant-client
-langchain-qdrant
+# ── Core AI / Embeddings ──────────────────────────────────────────────────────
+openai>=1.30.0           # OpenAI Python SDK (embeddings + GPT-4o-mini)
+tiktoken>=0.7.0          # Token counting for cost calculation
+
+# ── Vector database ───────────────────────────────────────────────────────────
+qdrant-client>=1.9.0     # Qdrant Cloud client
+
+# ── Database ──────────────────────────────────────────────────────────────────
+psycopg2-binary>=2.9.9   # PostgreSQL driver (binary = no build deps)
+
+# ── Numerical ─────────────────────────────────────────────────────────────────
+numpy>=1.26.0            # Vector similarity in deterministic analyzer
+
+# ── Web / UI ──────────────────────────────────────────────────────────────────
+streamlit>=1.35.0        # Chat UI
+
+# ── Config / environment ──────────────────────────────────────────────────────
+python-dotenv>=1.0.0     # .env file loading
