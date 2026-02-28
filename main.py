@@ -13,6 +13,7 @@ from backend.cache_manager import cache_manager
 from backend.config import cfg
 from backend.core_qdrant import run_llm
 from backend.evaluator import evaluator
+from backend.feedback_manager import feedback_manager
 
 # ── Logging ───────────────────────────────────────────────────────────────────
 logging.basicConfig(
@@ -30,6 +31,8 @@ st.set_page_config(
 # ── Session state ─────────────────────────────────────────────────────────────
 if "chat_history" not in st.session_state:
     st.session_state.chat_history = []   # list of {"query": str, "response": dict}
+if "feedback_given" not in st.session_state:
+    st.session_state.feedback_given = set()  # set of chat_history indices that got a rating
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -94,6 +97,18 @@ with st.sidebar:
         st.success("All cache layers cleared.")
 
     st.divider()
+
+    st.subheader("👍 Feedback Stats")
+    fb_stats = feedback_manager.get_stats()
+    if fb_stats["total"] > 0:
+        fb_col1, fb_col2 = st.columns(2)
+        fb_col1.metric("Total ratings", fb_stats["total"])
+        fb_col2.metric("Thumbs up", f"{fb_stats['thumbs_up_pct']}%")
+        st.progress(fb_stats["thumbs_up_pct"] / 100)
+    else:
+        st.caption("No feedback yet.")
+
+    st.divider()
     all_time = evaluator.get_all_time_summary()
     if "total_queries_all_time" in all_time:
         st.subheader("📈 All-Time Stats")
@@ -112,7 +127,7 @@ st.caption(
 
 # ── Replay chat history ───────────────────────────────────────────────────────
 
-for item in st.session_state.chat_history:
+for i, item in enumerate(st.session_state.chat_history):
     st.chat_message("user").write(item["query"])
 
     with st.chat_message("assistant"):
@@ -161,6 +176,33 @@ for item in st.session_state.chat_history:
                     )
                     st.caption(r.payload.get("text", "")[:300] + "…")
                     st.divider()
+
+        # Feedback buttons
+        if i not in st.session_state.feedback_given:
+            st.write("")
+            fb_cols = st.columns([1, 1, 8])
+            if fb_cols[0].button("👍", key=f"up_{i}", help="Helpful response"):
+                feedback_manager.save_feedback(
+                    query=item["query"],
+                    answer=resp["answer"],
+                    rating="thumbs_up",
+                    confidence_score=resp.get("confidence"),
+                    path_taken=resp.get("path"),
+                )
+                st.session_state.feedback_given.add(i)
+                st.rerun()
+            if fb_cols[1].button("👎", key=f"down_{i}", help="Not helpful"):
+                feedback_manager.save_feedback(
+                    query=item["query"],
+                    answer=resp["answer"],
+                    rating="thumbs_down",
+                    confidence_score=resp.get("confidence"),
+                    path_taken=resp.get("path"),
+                )
+                st.session_state.feedback_given.add(i)
+                st.rerun()
+        else:
+            st.caption("✓ Feedback recorded")
 
 # ── Input ─────────────────────────────────────────────────────────────────────
 
