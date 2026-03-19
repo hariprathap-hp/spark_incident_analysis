@@ -247,6 +247,7 @@ class CacheManager:
         if query_embedding is not None:
             best_score = 0.0
             best_response = None
+            absolute_best_score = 0.0  # Track highest score regardless of threshold
             threshold = cfg.cache.semantic_similarity_threshold
 
             all_entries = self.query_cache.scan_values()
@@ -266,13 +267,15 @@ class CacheManager:
                     "Semantic compare: score=%.4f threshold=%.2f key=%.40s",
                     score, threshold, _key,
                 )
+                if score > absolute_best_score:
+                    absolute_best_score = score
                 if score >= threshold and score > best_score:
                     best_score = score
                     best_response = entry
 
             logger.info(
                 "Semantic scan: %d total entries, %d with embeddings, best=%.4f, threshold=%.2f, hit=%s",
-                len(all_entries), entries_with_embedding, best_score, threshold,
+                len(all_entries), entries_with_embedding, absolute_best_score, threshold,
                 best_response is not None,
             )
 

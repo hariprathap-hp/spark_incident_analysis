@@ -47,10 +47,7 @@ Model
 from __future__ import annotations
 
 import logging
-import sys
 import time
-
-print("[CORE_QDRANT] Module loaded — this file is being executed", file=sys.stderr, flush=True)
 from typing import Any, Optional
 
 import tiktoken
@@ -202,9 +199,7 @@ def run_llm(query: str) -> dict[str, Any]:
     metrics.embedding_cache_hit = embed_cached
 
     # ── 2b. Query cache (semantic match — uses embedding similarity) ──────────
-    print(f"[CACHE DEBUG] Checking semantic cache (embedding len={len(embedding)})", file=sys.stderr, flush=True)
     cached_response = cache_manager.get_query(query, query_embedding=embedding)
-    print(f"[CACHE DEBUG] Semantic cache result: {'HIT' if cached_response else 'MISS'}", file=sys.stderr, flush=True)
     logger.info("Semantic cache result: %s", "HIT" if cached_response else "MISS")
     if cached_response is not None:
         metrics.path = "query_cache"
@@ -286,8 +281,5 @@ def run_llm(query: str) -> dict[str, Any]:
     }
 
     # Store in query cache with embedding for semantic matching
-    print(f"[CACHE DEBUG] Storing in query cache for: {query[:60]}", file=sys.stderr, flush=True)
     cache_manager.set_query(query, response, query_embedding=embedding)
-    sv_count = len(cache_manager.query_cache.scan_values())
-    print(f"[CACHE DEBUG] Stored OK. scan_values count={sv_count}", file=sys.stderr, flush=True)
     return response
