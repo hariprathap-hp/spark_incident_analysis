@@ -199,7 +199,9 @@ def run_llm(query: str) -> dict[str, Any]:
     metrics.embedding_cache_hit = embed_cached
 
     # ── 2b. Query cache (semantic match — uses embedding similarity) ──────────
+    logger.info("Checking semantic cache (embedding len=%d)...", len(embedding))
     cached_response = cache_manager.get_query(query, query_embedding=embedding)
+    logger.info("Semantic cache result: %s", "HIT" if cached_response else "MISS")
     if cached_response is not None:
         metrics.path = "query_cache"
         metrics.query_cache_hit = True
@@ -280,5 +282,7 @@ def run_llm(query: str) -> dict[str, Any]:
     }
 
     # Store in query cache with embedding for semantic matching
+    logger.info("Storing response in query cache with embedding for: %.60s", query)
     cache_manager.set_query(query, response, query_embedding=embedding)
+    logger.info("Query cached successfully. scan_values count=%d", len(cache_manager.query_cache.scan_values()))
     return response
