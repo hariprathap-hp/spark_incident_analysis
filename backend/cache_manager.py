@@ -249,22 +249,37 @@ class CacheManager:
             best_response = None
             threshold = cfg.cache.semantic_similarity_threshold
 
-            for _key, entry in self.query_cache.scan_values():
+            all_entries = self.query_cache.scan_values()
+            entries_with_embedding = 0
+
+            for _key, entry in all_entries:
                 cached_embedding = entry.get("_cache_embedding")
                 if cached_embedding is None:
                     continue
-                score = _cosine_similarity(query_embedding, cached_embedding)
+                entries_with_embedding += 1
+                try:
+                    score = _cosine_similarity(query_embedding, cached_embedding)
+                except Exception as exc:
+                    logger.warning("Cosine similarity failed: %s", exc)
+                    continue
+                logger.info(
+                    "Semantic compare: score=%.4f threshold=%.2f key=%.40s",
+                    score, threshold, _key,
+                )
                 if score >= threshold and score > best_score:
                     best_score = score
                     best_response = entry
 
+            logger.info(
+                "Semantic scan: %d total entries, %d with embeddings, best=%.4f, threshold=%.2f, hit=%s",
+                len(all_entries), entries_with_embedding, best_score, threshold,
+                best_response is not None,
+            )
+
             if best_response is not None:
-                logger.info(
-                    "Query cache HIT (semantic, sim=%.3f): %.60s",
-                    best_score,
-                    query,
-                )
-                return best_response
+                # Strip internal embedding before returning
+                result = {k: v for k, v in best_response.items() if k != "_cache_embedding"}
+                return result
 
         return None
 
@@ -273,6 +288,10 @@ class CacheManager:
         entry = {**response}
         if query_embedding is not None:
             entry["_cache_embedding"] = query_embedding
+            logger.info(
+                "Storing query in cache with embedding (%d dims): %.60s",
+                len(query_embedding), query,
+            )
         self.query_cache.set(self._query_key(query), entry)
 
     # ── Layer 2: Embedding cache ─────────────────────────────────────────────
