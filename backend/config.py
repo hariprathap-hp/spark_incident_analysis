@@ -83,7 +83,8 @@ class CacheConfig:
 
     # Semantic query matching — cosine similarity threshold for cache hits
     # Queries with similarity >= this threshold are treated as "same question"
-    semantic_similarity_threshold: float = 0.90
+    # text-embedding-3-small: natural rephrasings typically score 0.82–0.88
+    semantic_similarity_threshold: float = 0.82
 
 
 @dataclass
