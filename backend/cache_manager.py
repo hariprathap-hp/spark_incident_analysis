@@ -1,31 +1,33 @@
 """
 3-Layer Cache Manager — Spark Insight Agent Phase 2.
 
-Layer 1 — Query Cache
-    Key:   SHA-256 of normalized query string
-    Value: full response dict
-    TTL:   1 hour
-    Goal:  instant response for repeated identical queries
+Layer 1 — Query Cache  (SEMANTIC matching via embedding cosine similarity)
+    Store:  query embedding + response dict, keyed by unique ID
+    Match:  cosine similarity >= semantic_similarity_threshold (default 0.90)
+    TTL:    1 hour
+    Goal:   return cached response for semantically equivalent queries
+            e.g. "job failing intermittently" ≈ "job failing now and then"
 
-Layer 2 — Embedding Cache
+Layer 2 — Embedding Cache  (exact SHA-256 match)
     Key:   SHA-256 of input text content
     Value: list[float] embedding vector
     TTL:   24 hours
     Goal:  avoid paying for re-embedding the same text
 
-Layer 3 — LLM Response Cache
+Layer 3 — LLM Response Cache  (exact SHA-256 match)
     Key:   SHA-256 of (normalized_query + context[:2000])
     Value: LLM answer string
     TTL:   30 minutes
     Goal:  skip LLM when the same evidence yields the same question
 
-Each layer = in-memory dict (fast) + disk pickle (survives restarts).
-Thread-safe via RLock.
+Backend: Redis (if REDIS_URL is set) or in-memory dict + pickle fallback.
+Thread-safe via RLock (in-memory) or Redis atomicity.
 """
 
 from __future__ import annotations
 
 import hashlib
+import json
 import logging
 import pickle
 import threading
@@ -33,26 +35,27 @@ import time
 from pathlib import Path
 from typing import Any, Optional
 
+import numpy as np
+
 from backend.config import cfg
 
 logger = logging.getLogger(__name__)
 
+# ── Backend abstraction ──────────────────────────────────────────────────────
 
-class _TTLCache:
-    """Thread-safe in-memory dict backed by a pickle file, with per-entry TTL."""
 
-    def __init__(self, name: str, ttl_seconds: int, cache_dir: str) -> None:
+class _PickleBackend:
+    """In-memory dict backed by a pickle file (original behaviour)."""
+
+    def __init__(self, name: str, ttl: int, cache_dir: str) -> None:
         self.name = name
-        self.ttl = ttl_seconds
+        self.ttl = ttl
         self._path = Path(cache_dir) / f"{name}.pkl"
         self._lock = threading.RLock()
-        # store: key → (value, expire_at_epoch)
         self._store: dict[str, tuple[Any, float]] = {}
         self._hits = 0
         self._misses = 0
         self._load_from_disk()
-
-    # ── Public API ──────────────────────────────────────────────────────────
 
     def get(self, key: str) -> Optional[Any]:
         with self._lock:
@@ -71,12 +74,20 @@ class _TTLCache:
     def set(self, key: str, value: Any) -> None:
         with self._lock:
             self._store[key] = (value, time.time() + self.ttl)
-            self._persist_to_disk()
+            self._persist()
+
+    def scan_values(self) -> list[tuple[str, Any]]:
+        """Return all non-expired (key, value) pairs."""
+        with self._lock:
+            now = time.time()
+            return [
+                (k, v) for k, (v, exp) in self._store.items() if exp > now
+            ]
 
     def clear(self) -> None:
         with self._lock:
             self._store.clear()
-            self._persist_to_disk()
+            self._persist()
 
     def stats(self) -> dict[str, Any]:
         with self._lock:
@@ -84,6 +95,7 @@ class _TTLCache:
             active = sum(1 for _, (_, exp) in self._store.items() if exp > now)
             total = self._hits + self._misses
             return {
+                "backend": "pickle",
                 "total_entries": len(self._store),
                 "active_entries": active,
                 "hits": self._hits,
@@ -91,9 +103,7 @@ class _TTLCache:
                 "hit_rate": round(self._hits / total, 3) if total else 0.0,
             }
 
-    # ── Private ─────────────────────────────────────────────────────────────
-
-    def _persist_to_disk(self) -> None:
+    def _persist(self) -> None:
         try:
             self._path.parent.mkdir(parents=True, exist_ok=True)
             with open(self._path, "wb") as f:
@@ -108,10 +118,11 @@ class _TTLCache:
             with open(self._path, "rb") as f:
                 raw: dict = pickle.load(f)
             now = time.time()
-            # Evict already-expired entries on load
             self._store = {k: v for k, v in raw.items() if v[1] > now}
             logger.info(
-                "Cache '%s' restored: %d active entries", self.name, len(self._store)
+                "Cache '%s' restored: %d active entries",
+                self.name,
+                len(self._store),
             )
         except Exception as exc:
             logger.warning(
@@ -120,29 +131,151 @@ class _TTLCache:
             self._store = {}
 
 
+class _RedisBackend:
+    """Redis-backed cache layer with TTL handled by Redis SETEX."""
+
+    def __init__(self, name: str, ttl: int, redis_client: Any) -> None:
+        self.name = name
+        self.ttl = ttl
+        self._r = redis_client
+        self._prefix = f"{cfg.cache.redis_key_prefix}{name}:"
+        self._hits = 0
+        self._misses = 0
+
+    def get(self, key: str) -> Optional[Any]:
+        raw = self._r.get(self._prefix + key)
+        if raw is None:
+            self._misses += 1
+            return None
+        self._hits += 1
+        return json.loads(raw)
+
+    def set(self, key: str, value: Any) -> None:
+        self._r.setex(self._prefix + key, self.ttl, json.dumps(value))
+
+    def scan_values(self) -> list[tuple[str, Any]]:
+        """Return all (key, value) pairs in this layer."""
+        results = []
+        prefix_len = len(self._prefix)
+        for full_key in self._r.scan_iter(match=self._prefix + "*"):
+            raw = self._r.get(full_key)
+            if raw is not None:
+                short_key = full_key.decode()[prefix_len:] if isinstance(full_key, bytes) else full_key[prefix_len:]
+                results.append((short_key, json.loads(raw)))
+        return results
+
+    def clear(self) -> None:
+        keys = list(self._r.scan_iter(match=self._prefix + "*"))
+        if keys:
+            self._r.delete(*keys)
+
+    def stats(self) -> dict[str, Any]:
+        count = sum(1 for _ in self._r.scan_iter(match=self._prefix + "*"))
+        total = self._hits + self._misses
+        return {
+            "backend": "redis",
+            "total_entries": count,
+            "active_entries": count,
+            "hits": self._hits,
+            "misses": self._misses,
+            "hit_rate": round(self._hits / total, 3) if total else 0.0,
+        }
+
+
+def _make_backend(name: str, ttl: int, cache_dir: str) -> _PickleBackend | _RedisBackend:
+    """Create the appropriate cache backend."""
+    if cfg.cache.redis_url:
+        try:
+            import redis
+
+            client = redis.from_url(cfg.cache.redis_url, decode_responses=True)
+            client.ping()
+            logger.info("Redis connected for cache layer '%s'", name)
+            return _RedisBackend(name, ttl, client)
+        except Exception as exc:
+            logger.warning(
+                "Redis unavailable for '%s', falling back to pickle: %s",
+                name,
+                exc,
+            )
+    return _PickleBackend(name, ttl, cache_dir)
+
+
+# ── Semantic query matching helpers ──────────────────────────────────────────
+
+
+def _cosine_similarity(a: list[float], b: list[float]) -> float:
+    va = np.array(a, dtype=np.float32)
+    vb = np.array(b, dtype=np.float32)
+    denom = np.linalg.norm(va) * np.linalg.norm(vb)
+    if denom == 0:
+        return 0.0
+    return float(np.dot(va, vb) / denom)
+
+
+# ── Main CacheManager ───────────────────────────────────────────────────────
+
+
 class CacheManager:
-    """Unified 3-layer cache with per-layer statistics."""
+    """Unified 3-layer cache with semantic query matching and pluggable backend."""
 
     def __init__(self) -> None:
         d = cfg.cache.cache_dir
-        self.query_cache = _TTLCache("query", cfg.cache.query_ttl_seconds, d)
-        self.embedding_cache = _TTLCache(
+        self.query_cache = _make_backend("query", cfg.cache.query_ttl_seconds, d)
+        self.embedding_cache = _make_backend(
             "embedding", cfg.cache.embedding_ttl_seconds, d
         )
-        self.llm_cache = _TTLCache("llm", cfg.cache.llm_ttl_seconds, d)
+        self.llm_cache = _make_backend("llm", cfg.cache.llm_ttl_seconds, d)
 
-    # ── Layer 1: Query cache ────────────────────────────────────────────────
+    # ── Layer 1: Query cache (SEMANTIC matching) ─────────────────────────────
 
-    def get_query(self, query: str) -> Optional[dict]:
-        result = self.query_cache.get(self._query_key(query))
-        if result is not None:
-            logger.debug("Query cache HIT: %.60s", query)
-        return result
+    def get_query(self, query: str, query_embedding: list[float] | None = None) -> Optional[dict]:
+        """
+        Look up the query cache.
 
-    def set_query(self, query: str, response: dict) -> None:
-        self.query_cache.set(self._query_key(query), response)
+        1. Try exact hash match first (fast path).
+        2. If miss AND query_embedding is provided, scan all cached entries
+           and return the best match above the semantic similarity threshold.
+        """
+        # Fast path: exact match
+        exact = self.query_cache.get(self._query_key(query))
+        if exact is not None:
+            logger.debug("Query cache HIT (exact): %.60s", query)
+            return exact
 
-    # ── Layer 2: Embedding cache ────────────────────────────────────────────
+        # Semantic path: compare embeddings
+        if query_embedding is not None:
+            best_score = 0.0
+            best_response = None
+            threshold = cfg.cache.semantic_similarity_threshold
+
+            for _key, entry in self.query_cache.scan_values():
+                cached_embedding = entry.get("_cache_embedding")
+                if cached_embedding is None:
+                    continue
+                score = _cosine_similarity(query_embedding, cached_embedding)
+                if score >= threshold and score > best_score:
+                    best_score = score
+                    best_response = entry
+
+            if best_response is not None:
+                logger.info(
+                    "Query cache HIT (semantic, sim=%.3f): %.60s",
+                    best_score,
+                    query,
+                )
+                return best_response
+
+        return None
+
+    def set_query(self, query: str, response: dict, query_embedding: list[float] | None = None) -> None:
+        """Cache a query response, storing the embedding alongside for semantic matching."""
+        entry = {**response}
+        if query_embedding is not None:
+            entry["_cache_embedding"] = query_embedding
+        self.query_cache.set(self._query_key(query), entry)
+
+    # ── Layer 2: Embedding cache ─────────────────────────────────────────────
 
     def get_embedding(self, text: str) -> Optional[list[float]]:
         result = self.embedding_cache.get(self._content_hash(text))
@@ -153,7 +286,7 @@ class CacheManager:
     def set_embedding(self, text: str, embedding: list[float]) -> None:
         self.embedding_cache.set(self._content_hash(text), embedding)
 
-    # ── Layer 3: LLM response cache ─────────────────────────────────────────
+    # ── Layer 3: LLM response cache ──────────────────────────────────────────
 
     def get_llm(self, query: str, context: str) -> Optional[str]:
         result = self.llm_cache.get(self._llm_key(query, context))
@@ -164,7 +297,7 @@ class CacheManager:
     def set_llm(self, query: str, context: str, answer: str) -> None:
         self.llm_cache.set(self._llm_key(query, context), answer)
 
-    # ── Aggregate stats ─────────────────────────────────────────────────────
+    # ── Aggregate stats ──────────────────────────────────────────────────────
 
     def get_stats(self) -> dict[str, dict]:
         return {
@@ -178,7 +311,7 @@ class CacheManager:
             layer.clear()
         logger.info("All cache layers cleared.")
 
-    # ── Key helpers ─────────────────────────────────────────────────────────
+    # ── Key helpers ──────────────────────────────────────────────────────────
 
     @staticmethod
     def _query_key(query: str) -> str:

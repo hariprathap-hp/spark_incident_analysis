@@ -14,6 +14,9 @@ psycopg2-binary>=2.9.9   # PostgreSQL driver (binary = no build deps)
 # ── Numerical ─────────────────────────────────────────────────────────────────
 numpy>=1.26.0            # Vector similarity in deterministic analyzer
 
+# ── Cache backend ────────────────────────────────────────────────────────────
+redis>=5.0.0             # Redis cache backend (optional — set REDIS_URL to enable)
+
 # ── Web / UI ──────────────────────────────────────────────────────────────────
 streamlit>=1.35.0        # Chat UI
 

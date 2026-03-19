@@ -178,14 +178,14 @@ def run_llm(query: str) -> dict[str, Any]:
     start_ms = time.time() * 1000
     metrics = QueryMetrics(query_length=len(query))
 
-    # ── 1. Query cache ────────────────────────────────────────────────────────
+    # ── 1. Query cache (exact match — fast path, no embedding needed) ────────
     cached_response = cache_manager.get_query(query)
     if cached_response is not None:
         metrics.path = "query_cache"
         metrics.query_cache_hit = True
         metrics.latency_ms = round(time.time() * 1000 - start_ms, 1)
         evaluator.log(metrics)
-        logger.info("Query cache HIT — returning instantly (%.1f ms)", metrics.latency_ms)
+        logger.info("Query cache HIT (exact) — returning instantly (%.1f ms)", metrics.latency_ms)
         return {**cached_response, "cache_hit": True, "latency_ms": metrics.latency_ms}
 
     # ── 2. Embedding (with cache) ─────────────────────────────────────────────
@@ -197,6 +197,16 @@ def run_llm(query: str) -> dict[str, Any]:
 
     metrics.embedding_tokens = embed_tokens
     metrics.embedding_cache_hit = embed_cached
+
+    # ── 2b. Query cache (semantic match — uses embedding similarity) ──────────
+    cached_response = cache_manager.get_query(query, query_embedding=embedding)
+    if cached_response is not None:
+        metrics.path = "query_cache"
+        metrics.query_cache_hit = True
+        metrics.latency_ms = round(time.time() * 1000 - start_ms, 1)
+        evaluator.log(metrics)
+        logger.info("Query cache HIT (semantic) — returning (%.1f ms)", metrics.latency_ms)
+        return {**cached_response, "cache_hit": True, "latency_ms": metrics.latency_ms}
 
     # ── 3. Qdrant search ──────────────────────────────────────────────────────
     try:
@@ -269,6 +279,6 @@ def run_llm(query: str) -> dict[str, Any]:
         "debug": det.debug_info,
     }
 
-    # Store in query cache for the next identical query
-    cache_manager.set_query(query, response)
+    # Store in query cache with embedding for semantic matching
+    cache_manager.set_query(query, response, query_embedding=embedding)
     return response
