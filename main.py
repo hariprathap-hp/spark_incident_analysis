@@ -148,10 +148,15 @@ for i, item in enumerate(st.session_state.chat_history):
         cols[2].metric("Cost", "$0.0000" if cache_hit else f"${cost:.5f}")
         cols[3].metric("Latency", f"{latency:.0f}ms")
         if cache_similarity is not None:
-            _label = "Cache Match" if cache_hit else "Best Match (miss)"
+            if cache_hit:
+                _label = "Cache Hit"
+            elif cache_similarity < 0.01:
+                _label = "New Query"
+            else:
+                _label = "Low Match"
             cols[4].metric(_label, f"{cache_similarity:.2f}")
         else:
-            cols[4].metric("Cache Match", "—")
+            cols[4].metric("Cache", "—")
 
         # Clusters & patterns
         clusters = resp.get("clusters", [])
@@ -240,10 +245,15 @@ if prompt:
         cols[2].metric("Cost", "$0.0000" if cache_hit else f"${cost:.5f}")
         cols[3].metric("Latency", f"{latency:.0f}ms")
         if cache_similarity is not None:
-            _label = "Cache Match" if cache_hit else "Best Match (miss)"
+            if cache_hit:
+                _label = "Cache Hit"
+            elif cache_similarity < 0.01:
+                _label = "New Query"
+            else:
+                _label = "Low Match"
             cols[4].metric(_label, f"{cache_similarity:.2f}")
         else:
-            cols[4].metric("Cache Match", "—")
+            cols[4].metric("Cache", "—")
 
         clusters = resp.get("clusters", [])
         recurring = resp.get("recurring_patterns", [])
