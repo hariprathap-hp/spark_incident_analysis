@@ -2,12 +2,6 @@
 
 ---
 
-## Team: Insight Eagles
-
-We are **Insight Eagles**, a team of 5 passionate engineers who came together for this hackathon with one goal — turning historical incident data into actionable intelligence. **Hariprathap** leads the architecture and backend design, **Shyam** owns the vector search and Qdrant integration, **Divya** drives the deterministic analysis engine and confidence scoring logic, **Annamalai** handles the data pipeline, ingestion, and database layer, and **Kavipriya** built the Streamlit UI and evaluation framework. Together, we bring a mix of data engineering, AI/ML, and full-stack expertise, united by a shared frustration with how long it takes to diagnose Spark failures — and a belief that the answer is usually already in our past incidents, if only we could find it fast enough.
-
----
-
 ## What Is This Product?
 
 **Spark Incident Analysis Agent** is an AI-powered internal tool that helps data engineers and platform teams instantly diagnose Apache Spark job failures by searching through historical incident records.
