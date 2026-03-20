@@ -27,6 +27,7 @@ from openai import OpenAI
 from qdrant_client import QdrantClient
 from qdrant_client.models import Distance, PointStruct, VectorParams
 
+from backend.cache_manager import cache_manager
 from backend.config import cfg
 
 logger = logging.getLogger(__name__)
@@ -194,6 +195,17 @@ def _ingest_to_qdrant(incident_id: str, formatted_text: str, row: dict) -> None:
             )
         ],
     )
+
+    # Targeted cache invalidation — evict only query cache entries that are
+    # semantically similar to this new incident.  Reuses the embedding we
+    # already computed (zero extra API cost).  Layer 3 (LLM cache) is
+    # self-healing: changed Qdrant results → different context hash → natural
+    # cache miss → fresh LLM answer.
+    evicted = cache_manager.invalidate_similar(embedding)
+    if evicted:
+        logger.info(
+            "Ingestion of %s invalidated %d cached queries", incident_id, evicted
+        )
 
 
 def _mark_as_ingested(conn: psycopg2.extensions.connection, incident_id: str) -> None:

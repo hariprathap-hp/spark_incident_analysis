@@ -84,6 +84,15 @@ class _PickleBackend:
                 (k, v) for k, (v, exp) in self._store.items() if exp > now
             ]
 
+    def delete(self, key: str) -> bool:
+        """Delete a single key. Returns True if the key existed."""
+        with self._lock:
+            if key in self._store:
+                del self._store[key]
+                self._persist()
+                return True
+            return False
+
     def clear(self) -> None:
         with self._lock:
             self._store.clear()
@@ -163,6 +172,10 @@ class _RedisBackend:
                 short_key = full_key.decode()[prefix_len:] if isinstance(full_key, bytes) else full_key[prefix_len:]
                 results.append((short_key, json.loads(raw)))
         return results
+
+    def delete(self, key: str) -> bool:
+        """Delete a single key. Returns True if the key existed."""
+        return bool(self._r.delete(self._prefix + key))
 
     def clear(self) -> None:
         keys = list(self._r.scan_iter(match=self._prefix + "*"))
@@ -335,6 +348,53 @@ class CacheManager:
             "embedding": self.embedding_cache.stats(),
             "llm": self.llm_cache.stats(),
         }
+
+    def invalidate_similar(
+        self,
+        incident_embedding: list[float],
+        threshold: float | None = None,
+    ) -> int:
+        """Evict Layer 1 (query cache) entries semantically similar to a new incident.
+
+        Layer 3 (LLM cache) is self-healing: evicted queries will miss Layer 1,
+        re-query Qdrant (which now includes the new incident), produce a different
+        context string, and therefore generate a new LLM cache key automatically.
+
+        Args:
+            incident_embedding: The embedding of the newly ingested incident.
+            threshold: Cosine similarity threshold for eviction.
+                       Defaults to ``cfg.cache.invalidation_similarity_threshold``.
+
+        Returns:
+            Number of cache entries evicted.
+        """
+        if threshold is None:
+            threshold = cfg.cache.invalidation_similarity_threshold
+
+        evicted = 0
+        for key, entry in self.query_cache.scan_values():
+            cached_embedding = entry.get("_cache_embedding")
+            if cached_embedding is None:
+                continue
+            try:
+                score = _cosine_similarity(incident_embedding, cached_embedding)
+            except Exception:
+                continue
+            if score >= threshold:
+                self.query_cache.delete(key)
+                evicted += 1
+                logger.info(
+                    "Cache invalidated: key=%.40s similarity=%.4f", key, score
+                )
+
+        if evicted:
+            logger.info(
+                "Targeted invalidation: evicted %d/%d query cache entries (threshold=%.2f)",
+                evicted,
+                evicted + len(self.query_cache.scan_values()),
+                threshold,
+            )
+        return evicted
 
     def clear_all(self) -> None:
         for layer in (self.query_cache, self.embedding_cache, self.llm_cache):

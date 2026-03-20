@@ -86,6 +86,12 @@ class CacheConfig:
     # text-embedding-3-small: natural rephrasings typically score 0.82–0.88
     semantic_similarity_threshold: float = 0.82
 
+    # Targeted cache invalidation on ingestion — evict cached queries whose
+    # embedding is similar to a newly ingested incident (instead of clearing all).
+    # Lower than semantic_similarity_threshold because we're comparing a query
+    # embedding against an incident embedding (different text types).
+    invalidation_similarity_threshold: float = 0.80
+
 
 @dataclass
 class AppConfig:
