@@ -2,6 +2,36 @@
 
 ---
 
+## What Is This Product?
+
+**Spark Incident Analysis Agent** is an AI-powered internal tool that helps data engineers and platform teams instantly diagnose Apache Spark job failures by searching through historical incident records.
+
+### The Problem
+When a Spark job fails at 2 AM, engineers currently have to:
+1. Manually search through Confluence/Jira/ServiceNow for similar past incidents
+2. Read through dozens of incident reports hoping to find a relevant one
+3. Piece together root causes and resolutions from scattered documentation
+4. Often escalate to senior engineers who "remember" a similar issue from months ago
+
+This process takes **30–60 minutes per incident** and depends heavily on tribal knowledge.
+
+### Our Solution
+This agent acts as an **intelligent incident search engine**. An engineer types a question in natural language — like *"Why is my Spark job failing with OOM errors on the executor?"* — and the system:
+1. **Searches** a vector database of historical Spark incidents to find the most similar past cases
+2. **Analyzes** the results using pattern matching to identify the root cause category (e.g., Memory/OOM, Data Skew, Shuffle Failure)
+3. **Responds** with a structured answer including: root cause, resolution steps, and links to source incidents — all within **2–5 seconds**
+
+### What Makes It Different?
+- **Cost-optimized**: A 3-layer caching system + deterministic analysis layer means **~75% of queries are answered without any LLM call** (cost ≈ $0). Traditional RAG systems call the LLM on every query.
+- **Transparent**: Every answer shows its confidence score, the path it took (Cache / Deterministic / LLM), exact cost, and source incidents. No black-box answers.
+- **Fast**: Cached and deterministic answers return in **<1 second**. Even LLM-backed answers return in **2–5 seconds**.
+- **Built for Spark**: The deterministic layer understands 12 Spark-specific failure categories (OOM, Data Skew, Shuffle, Executor, etc.) using domain-tuned pattern matching.
+
+### Who Uses It?
+Data engineers, platform/infra teams, and on-call SREs who troubleshoot Spark job failures. It reduces mean-time-to-resolution (MTTR) and captures institutional knowledge that would otherwise live only in people's heads.
+
+---
+
 ## Part 1: End-to-End Flow (Step by Step)
 
 ### Step 1 — User Enters a Query
@@ -116,6 +146,71 @@ User Query
     ▼
   Cache response → Log metrics → Display to user
 ```
+
+---
+
+## Part 2.5: Understanding the 3 Cache Layers (With Examples)
+
+All three caches serve different purposes. Here's a concrete scenario that shows when each one kicks in.
+
+---
+
+### Scenario: Engineer Alice is debugging an OOM issue at 2 AM
+
+**Query 1** — Alice types: *"Why is my Spark job failing with OOM errors?"*
+- **Query Cache (L1)**: MISS — first time seeing this query.
+- **Embedding Cache (L2)**: MISS — first time embedding this text.
+- Calls OpenAI to generate embedding → costs ~$0.00002.
+- **Semantic Cache (L1 fuzzy)**: MISS — no similar queries cached yet.
+- Hits Qdrant → gets 10 results → deterministic layer answers with confidence 0.78 → **returns answer**.
+- **Caches**: Stores the query hash + embedding + response in L1. Stores the embedding vector in L2.
+
+**Query 2** (30 seconds later) — Alice types the exact same query again (refreshed the page):
+*"Why is my Spark job failing with OOM errors?"*
+- **Query Cache (L1)**: **HIT** — exact SHA-256 hash match.
+- **Returns instantly. Cost: $0.00. No embedding, no Qdrant, no LLM.**
+
+**Query 3** (2 minutes later) — Alice rephrases: *"Spark executor out of memory issue"*
+- **Query Cache (L1)**: MISS — different text, different hash.
+- **Embedding Cache (L2)**: MISS — new text, needs new embedding.
+- Calls OpenAI to embed → costs ~$0.00002.
+- **Semantic Cache (L1 fuzzy)**: **HIT** — cosine similarity with Query 1's embedding = 0.87 (above 0.82 threshold).
+- **Returns Query 1's cached answer. Cost: ~$0.00002 (embedding only). No Qdrant, no LLM.**
+
+**Query 4** (5 minutes later) — Alice's teammate Bob asks: *"What causes data skew in Spark joins?"*
+- **Query Cache (L1)**: MISS — completely different query.
+- **Embedding Cache (L2)**: MISS — new text.
+- Calls OpenAI to embed → costs ~$0.00002.
+- **Semantic Cache (L1 fuzzy)**: MISS — similarity with Alice's OOM queries = 0.41 (too low, different topic).
+- Hits Qdrant → gets 10 results → deterministic layer confidence = 0.62 (below 0.70) → **falls through to LLM**.
+- **LLM Response Cache (L3)**: MISS — first time with this query+context combo.
+- Calls gpt-4o-mini → costs ~$0.0002.
+- **Caches**: Stores LLM response in L3 (keyed on query + context hash).
+
+**Query 5** (10 minutes later) — Another engineer Carol asks: *"How to fix data skew in Spark joins?"*
+- **Query Cache (L1)**: MISS — different text from Bob's query.
+- **Embedding Cache (L2)**: MISS — new text.
+- Calls OpenAI to embed → costs ~$0.00002.
+- **Semantic Cache (L1 fuzzy)**: **HIT** — similarity with Bob's query = 0.85 (above 0.82).
+- **Returns Bob's cached answer. Cost: ~$0.00002. No Qdrant, no LLM.**
+
+---
+
+### Summary Table
+
+| Cache Layer | What It Stores | Key | TTL | Catches |
+|-------------|---------------|-----|-----|---------|
+| **Query Cache (L1 exact)** | Full response | SHA-256 of normalized query text | 1 hour | Identical repeated queries (copy-paste, page refresh) |
+| **Embedding Cache (L2)** | OpenAI embedding vector (1536 floats) | SHA-256 of raw text | 24 hours | Same text needing re-embedding (saves ~$0.00002 per call) |
+| **Semantic Cache (L1 fuzzy)** | Reuses L1 response via embedding similarity | Cosine similarity >= 0.82 | 1 hour (same as L1) | Rephrasings and paraphrases ("OOM error" ≈ "out of memory issue") |
+| **LLM Response Cache (L3)** | GPT-generated answer | SHA-256 of (query + top context) | 30 min | Same question hitting same evidence but via different query path |
+
+### Why All Three Are Needed
+
+- **Without L1 (Query Cache)**: Every query, even repeated ones, would call the embedding API + Qdrant. Wastes time and money on page refreshes.
+- **Without L2 (Embedding Cache)**: The same incident text would be re-embedded every time it appears in search results. At scale, this adds up.
+- **Without L3 (LLM Response Cache)**: Two slightly different queries that retrieve the same incidents would both call gpt-4o-mini. The LLM call is the most expensive operation (~$0.0002).
+- **Without Semantic Cache (L1 fuzzy)**: Rephrasings would miss the exact cache and go through the full pipeline. This is the most impactful optimization — natural language has infinite ways to ask the same question.
 
 ---
 
