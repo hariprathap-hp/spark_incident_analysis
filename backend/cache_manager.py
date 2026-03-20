@@ -226,6 +226,7 @@ class CacheManager:
             "embedding", cfg.cache.embedding_ttl_seconds, d
         )
         self.llm_cache = _make_backend("llm", cfg.cache.llm_ttl_seconds, d)
+        self.last_best_similarity: float | None = None  # best score from most recent get_query()
 
     # ── Layer 1: Query cache (SEMANTIC matching) ─────────────────────────────
 
@@ -241,6 +242,7 @@ class CacheManager:
         exact = self.query_cache.get(self._query_key(query))
         if exact is not None:
             logger.debug("Query cache HIT (exact): %.60s", query)
+            self.last_best_similarity = 1.0
             result = {k: v for k, v in exact.items() if k != "_cache_embedding"}
             result["_cache_similarity"] = 1.0  # exact match
             return result
@@ -274,6 +276,9 @@ class CacheManager:
                 if score >= threshold and score > best_score:
                     best_score = score
                     best_response = entry
+
+            # Always store the best similarity found (even on miss)
+            self.last_best_similarity = round(absolute_best_score, 4) if entries_with_embedding > 0 else None
 
             logger.info(
                 "Semantic scan: %d total entries, %d with embeddings, best=%.4f, threshold=%.2f, hit=%s",

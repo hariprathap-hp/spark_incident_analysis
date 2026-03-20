@@ -279,6 +279,7 @@ def run_llm(query: str) -> dict[str, Any]:
         ],
         "recurring_patterns": det.recurring_patterns,
         "cache_hit": False,
+        "cache_similarity": cache_manager.last_best_similarity,
         "debug": det.debug_info,
     }
 
