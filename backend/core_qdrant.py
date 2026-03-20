@@ -185,8 +185,9 @@ def run_llm(query: str) -> dict[str, Any]:
         metrics.query_cache_hit = True
         metrics.latency_ms = round(time.time() * 1000 - start_ms, 1)
         evaluator.log(metrics)
+        sim = cached_response.pop("_cache_similarity", 1.0)
         logger.info("Query cache HIT (exact) — returning instantly (%.1f ms)", metrics.latency_ms)
-        return {**cached_response, "cache_hit": True, "latency_ms": metrics.latency_ms}
+        return {**cached_response, "cache_hit": True, "latency_ms": metrics.latency_ms, "cache_similarity": sim}
 
     # ── 2. Embedding (with cache) ─────────────────────────────────────────────
     try:
@@ -206,8 +207,9 @@ def run_llm(query: str) -> dict[str, Any]:
         metrics.query_cache_hit = True
         metrics.latency_ms = round(time.time() * 1000 - start_ms, 1)
         evaluator.log(metrics)
-        logger.info("Query cache HIT (semantic) — returning (%.1f ms)", metrics.latency_ms)
-        return {**cached_response, "cache_hit": True, "latency_ms": metrics.latency_ms}
+        sim = cached_response.pop("_cache_similarity", None)
+        logger.info("Query cache HIT (semantic, sim=%.4f) — returning (%.1f ms)", sim or 0, metrics.latency_ms)
+        return {**cached_response, "cache_hit": True, "latency_ms": metrics.latency_ms, "cache_similarity": sim}
 
     # ── 3. Qdrant search ──────────────────────────────────────────────────────
     try:

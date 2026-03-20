@@ -241,7 +241,9 @@ class CacheManager:
         exact = self.query_cache.get(self._query_key(query))
         if exact is not None:
             logger.debug("Query cache HIT (exact): %.60s", query)
-            return exact
+            result = {k: v for k, v in exact.items() if k != "_cache_embedding"}
+            result["_cache_similarity"] = 1.0  # exact match
+            return result
 
         # Semantic path: compare embeddings
         if query_embedding is not None:
@@ -282,6 +284,7 @@ class CacheManager:
             if best_response is not None:
                 # Strip internal embedding before returning
                 result = {k: v for k, v in best_response.items() if k != "_cache_embedding"}
+                result["_cache_similarity"] = round(best_score, 4)
                 return result
 
         return None

@@ -140,12 +140,17 @@ for i, item in enumerate(st.session_state.chat_history):
         cost = resp.get("cost_usd", 0.0)
         latency = resp.get("latency_ms", resp.get("response_time", 0) * 1000)
         cache_hit = resp.get("cache_hit", False)
+        cache_similarity = resp.get("cache_similarity")
 
-        cols = st.columns(4)
+        cols = st.columns(5)
         cols[0].metric("Path", _path_badge(path).split(" ", 1)[1] if " " in _path_badge(path) else path)
         cols[1].metric("Confidence", f"{confidence:.0%}")
         cols[2].metric("Cost", "$0.0000" if cache_hit else f"${cost:.5f}")
         cols[3].metric("Latency", f"{latency:.0f}ms")
+        if cache_similarity is not None:
+            cols[4].metric("Cache Match", f"{cache_similarity:.2f}")
+        else:
+            cols[4].metric("Cache Match", "—")
 
         # Clusters & patterns
         clusters = resp.get("clusters", [])
@@ -226,12 +231,17 @@ if prompt:
         cost = resp.get("cost_usd", 0.0)
         latency = resp.get("latency_ms", resp.get("response_time", 0) * 1000)
         cache_hit = resp.get("cache_hit", False)
+        cache_similarity = resp.get("cache_similarity")
 
-        cols = st.columns(4)
+        cols = st.columns(5)
         cols[0].metric("Path", _path_badge(path).split(" ", 1)[1] if " " in _path_badge(path) else path)
         cols[1].metric("Confidence", f"{confidence:.0%}")
         cols[2].metric("Cost", "$0.0000" if cache_hit else f"${cost:.5f}")
         cols[3].metric("Latency", f"{latency:.0f}ms")
+        if cache_similarity is not None:
+            cols[4].metric("Cache Match", f"{cache_similarity:.2f}")
+        else:
+            cols[4].metric("Cache Match", "—")
 
         clusters = resp.get("clusters", [])
         recurring = resp.get("recurring_patterns", [])
