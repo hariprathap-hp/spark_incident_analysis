@@ -46,6 +46,11 @@ class QueryMetrics:
     timestamp: str = field(
         default_factory=lambda: datetime.now(timezone.utc).isoformat()
     )
+    # ── Audit fields ─────────────────────────────────────────────────────────
+    query_text: str = ""                 # Full query for audit trail
+    session_id: str = ""                 # Streamlit session / caller ID
+    user_id: str = ""                    # Authenticated user (if available)
+    # ── Existing fields ──────────────────────────────────────────────────────
     query_length: int = 0
     confidence: float = 0.0
     path: str = ""                      # "query_cache" | "deterministic" | "llm"
@@ -64,6 +69,7 @@ class QueryMetrics:
     query_cache_hit: bool = False
     embedding_cache_hit: bool = False
     llm_cache_hit: bool = False
+    low_similarity_warning: bool = False
 
     def calculate_costs(self) -> None:
         """Populate cost fields from token counts using config pricing."""
@@ -95,12 +101,18 @@ class Evaluator:
         with self._lock:
             self._session.append(metrics)
             self._append_jsonl(metrics)
-        logger.debug(
-            "Metrics logged: path=%s conf=%.3f cost=$%.6f lat=%.0fms",
+        logger.info(
+            "Metrics logged: user=%s session=%s path=%s conf=%.3f "
+            "cost=$%.6f lat=%.0fms sim=%.3f low_sim=%s query=%.80s",
+            metrics.user_id or "anonymous",
+            metrics.session_id[:12] if metrics.session_id else "n/a",
             metrics.path,
             metrics.confidence,
             metrics.total_cost_usd,
             metrics.latency_ms,
+            metrics.top_similarity,
+            metrics.low_similarity_warning,
+            metrics.query_text,
         )
 
     def get_session_summary(self) -> dict:
@@ -124,6 +136,11 @@ class Evaluator:
             "query_cache", 0
         )
 
+        # ── Business impact estimates ─────────────────────────────────────────
+        manual_mins = cfg.manual_investigation_minutes
+        total_time_saved_mins = round(n * manual_mins - sum(latencies) / 60_000, 1)
+        avg_response_secs = round(statistics.mean(latencies) / 1000, 2) if latencies else 0.0
+
         return {
             "total_queries": n,
             "total_cost_usd": round(sum(costs), 6),
@@ -138,6 +155,15 @@ class Evaluator:
                 "embedding": self._hit_rate(metrics, "embedding_cache_hit"),
                 "llm": self._hit_rate(metrics, "llm_cache_hit"),
             },
+            # ── Impact metrics ───────────────────────────────────────────────
+            "total_time_saved_mins": total_time_saved_mins,
+            "avg_response_secs": avg_response_secs,
+            "manual_baseline_mins": manual_mins,
+            "unique_users": len({m.user_id for m in metrics if m.user_id}),
+            "unique_sessions": len({m.session_id for m in metrics if m.session_id}),
+            "low_similarity_count": sum(
+                1 for m in metrics if m.low_similarity_warning
+            ),
         }
 
     def get_all_time_summary(self) -> dict:
@@ -160,10 +186,19 @@ class Evaluator:
             return {"message": "Metrics log is empty."}
 
         costs = [r.get("total_cost_usd", 0.0) for r in rows]
+        latencies = [r.get("latency_ms", 0.0) for r in rows]
+        n = len(rows)
+        manual_mins = cfg.manual_investigation_minutes
+        total_time_saved = round(n * manual_mins - sum(latencies) / 60_000, 1)
         return {
-            "total_queries_all_time": len(rows),
+            "total_queries_all_time": n,
             "total_cost_all_time_usd": round(sum(costs), 6),
             "avg_cost_per_query_usd": round(statistics.mean(costs), 6) if costs else 0.0,
+            "total_time_saved_all_time_mins": total_time_saved,
+            "total_time_saved_all_time_hrs": round(total_time_saved / 60, 1),
+            "unique_users_all_time": len(
+                {r.get("user_id", "") for r in rows if r.get("user_id")}
+            ),
         }
 
     # ── Private ──────────────────────────────────────────────────────────────

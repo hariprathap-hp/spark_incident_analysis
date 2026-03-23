@@ -6,6 +6,7 @@ Streamlit chat interface with deterministic intelligence metrics panel.
 from __future__ import annotations
 
 import logging
+import uuid
 
 import streamlit as st
 
@@ -33,6 +34,10 @@ if "chat_history" not in st.session_state:
     st.session_state.chat_history = []   # list of {"query": str, "response": dict}
 if "feedback_given" not in st.session_state:
     st.session_state.feedback_given = set()  # set of chat_history indices that got a rating
+if "session_id" not in st.session_state:
+    st.session_state.session_id = str(uuid.uuid4())
+if "user_id" not in st.session_state:
+    st.session_state.user_id = ""  # populated by login widget below
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -57,6 +62,19 @@ def _confidence_bar(confidence: float) -> str:
 with st.sidebar:
     st.title("🔥 Spark Insight Agent")
     st.caption("Phase 2 — Deterministic Intelligence")
+    st.divider()
+
+    st.subheader("👤 User")
+    user_name = st.text_input(
+        "Your name / ID",
+        value=st.session_state.user_id,
+        placeholder="e.g. john.doe",
+        help="Logged alongside each query for audit trail.",
+    )
+    if user_name != st.session_state.user_id:
+        st.session_state.user_id = user_name
+    st.caption(f"Session: `{st.session_state.session_id[:8]}…`")
+
     st.divider()
 
     st.subheader("⚙️ Configuration")
@@ -92,9 +110,13 @@ with st.sidebar:
 
     st.divider()
 
-    if st.button("🗑️ Clear caches"):
+    cache_col1, cache_col2 = st.columns(2)
+    if cache_col1.button("🗑️ Clear all"):
         cache_manager.clear_all()
         st.success("All cache layers cleared.")
+    if cache_col2.button("🧹 Purge expired"):
+        evicted = cache_manager.evict_all_expired()
+        st.success(f"Purged {evicted} expired entries.")
 
     st.divider()
 
@@ -108,6 +130,26 @@ with st.sidebar:
     else:
         st.caption("No feedback yet.")
 
+    # ── Business Impact (session) ────────────────────────────────────────────
+    if "total_time_saved_mins" in summary:
+        st.divider()
+        st.subheader("💡 Business Impact (Session)")
+        imp_col1, imp_col2 = st.columns(2)
+        imp_col1.metric(
+            "Time saved",
+            f"{summary['total_time_saved_mins']:.0f} min",
+            help=f"vs. {summary['manual_baseline_mins']:.0f} min manual investigation per query",
+        )
+        imp_col2.metric("Avg response", f"{summary['avg_response_secs']:.1f}s")
+        imp_col1.metric("Users", summary.get("unique_users", 0))
+        imp_col2.metric("Sessions", summary.get("unique_sessions", 0))
+        low_sim = summary.get("low_similarity_count", 0)
+        if low_sim:
+            st.caption(
+                f"⚠️ {low_sim} / {summary['total_queries']} "
+                f"queries had low-similarity warnings"
+            )
+
     st.divider()
     all_time = evaluator.get_all_time_summary()
     if "total_queries_all_time" in all_time:
@@ -115,6 +157,12 @@ with st.sidebar:
         st.write(f"Total queries: **{all_time['total_queries_all_time']}**")
         st.write(f"Total cost: **${all_time['total_cost_all_time_usd']:.4f}**")
         st.write(f"Avg per query: **${all_time['avg_cost_per_query_usd']:.4f}**")
+        time_hrs = all_time.get("total_time_saved_all_time_hrs", 0)
+        if time_hrs:
+            st.write(f"Total time saved: **{time_hrs:.1f} hours**")
+        users_all = all_time.get("unique_users_all_time", 0)
+        if users_all:
+            st.write(f"Unique users: **{users_all}**")
 
 
 # ── Main chat area ────────────────────────────────────────────────────────────
@@ -132,6 +180,12 @@ for i, item in enumerate(st.session_state.chat_history):
 
     with st.chat_message("assistant"):
         resp = item["response"]
+        if resp.get("low_similarity_warning"):
+            st.warning(
+                "This query had no strong match in the incident database. "
+                "The answer below may not be reliable.",
+                icon="⚠️",
+            )
         st.markdown(resp["answer"])
 
         # Compact metrics row
@@ -214,11 +268,21 @@ if prompt:
     with st.chat_message("assistant"):
         with st.spinner("Analysing…"):
             try:
-                resp = run_llm(query=prompt)
+                resp = run_llm(
+                    query=prompt,
+                    session_id=st.session_state.session_id,
+                    user_id=st.session_state.user_id,
+                )
             except Exception as exc:
                 st.error(f"Error: {exc}")
                 st.stop()
 
+        if resp.get("low_similarity_warning"):
+            st.warning(
+                "This query had no strong match in the incident database. "
+                "The answer below may not be reliable.",
+                icon="⚠️",
+            )
         st.markdown(resp["answer"])
 
         path = resp.get("path", "")

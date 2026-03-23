@@ -66,6 +66,9 @@ class AnalysisConfig:
     # Chunk-based embeddings (short text) typically peak at 0.40-0.55.
     # Component A is normalized: score / similarity_scale, capped at 1.0.
     similarity_scale: float = 0.50
+    # Below this top-similarity score, add a low-confidence disclaimer to the
+    # LLM response so users know the answer may not be based on relevant data.
+    low_similarity_threshold: float = 0.25
 
 
 @dataclass
@@ -85,6 +88,9 @@ class AppConfig:
     cache: CacheConfig = field(default_factory=CacheConfig)
     metrics_log_path: str = "metrics.jsonl"
     log_level: str = field(default_factory=lambda: os.getenv("LOG_LEVEL", "INFO"))
+    # Estimated minutes a human would spend manually investigating an incident
+    # Used to calculate time-saved ROI for dashboards / hackathon demo.
+    manual_investigation_minutes: float = 30.0
 
 
 # Singleton — import this everywhere

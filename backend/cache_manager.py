@@ -82,22 +82,40 @@ class _TTLCache:
         with self._lock:
             now = time.time()
             active = sum(1 for _, (_, exp) in self._store.items() if exp > now)
+            expired = len(self._store) - active
             total = self._hits + self._misses
             return {
                 "total_entries": len(self._store),
                 "active_entries": active,
+                "expired_entries": expired,
                 "hits": self._hits,
                 "misses": self._misses,
                 "hit_rate": round(self._hits / total, 3) if total else 0.0,
             }
+
+    def evict_expired(self) -> int:
+        """Proactively remove all expired entries. Returns number evicted."""
+        with self._lock:
+            now = time.time()
+            before = len(self._store)
+            self._store = {k: v for k, v in self._store.items() if v[1] > now}
+            evicted = before - len(self._store)
+            if evicted:
+                self._persist_to_disk()
+                logger.info("Cache '%s': evicted %d expired entries", self.name, evicted)
+            return evicted
 
     # ── Private ─────────────────────────────────────────────────────────────
 
     def _persist_to_disk(self) -> None:
         try:
             self._path.parent.mkdir(parents=True, exist_ok=True)
+            # Evict expired entries before writing to prevent disk bloat
+            now = time.time()
+            clean = {k: v for k, v in self._store.items() if v[1] > now}
+            self._store = clean
             with open(self._path, "wb") as f:
-                pickle.dump(self._store, f, protocol=pickle.HIGHEST_PROTOCOL)
+                pickle.dump(clean, f, protocol=pickle.HIGHEST_PROTOCOL)
         except Exception as exc:
             logger.warning("Cache persist failed (%s): %s", self.name, exc)
 
@@ -177,6 +195,13 @@ class CacheManager:
         for layer in (self.query_cache, self.embedding_cache, self.llm_cache):
             layer.clear()
         logger.info("All cache layers cleared.")
+
+    def evict_all_expired(self) -> int:
+        """Proactively purge expired entries across all layers."""
+        total = 0
+        for layer in (self.query_cache, self.embedding_cache, self.llm_cache):
+            total += layer.evict_expired()
+        return total
 
     # ── Key helpers ─────────────────────────────────────────────────────────
 

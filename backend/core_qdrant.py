@@ -168,7 +168,11 @@ def _call_llm(query: str, context: str) -> tuple[str, int, int, bool]:
 # ── Main pipeline ─────────────────────────────────────────────────────────────
 
 
-def run_llm(query: str) -> dict[str, Any]:
+def run_llm(
+    query: str,
+    session_id: str = "",
+    user_id: str = "",
+) -> dict[str, Any]:
     """
     Full RAG pipeline with deterministic analysis and multi-layer caching.
 
@@ -176,7 +180,19 @@ def run_llm(query: str) -> dict[str, Any]:
     Phase 2 metadata fields (confidence, path, cost_usd, clusters, …).
     """
     start_ms = time.time() * 1000
-    metrics = QueryMetrics(query_length=len(query))
+    metrics = QueryMetrics(
+        query_length=len(query),
+        query_text=query,
+        session_id=session_id,
+        user_id=user_id,
+    )
+    logger.info(
+        "Query received | user=%s session=%s len=%d | %.80s",
+        user_id or "anonymous",
+        session_id[:12] if session_id else "n/a",
+        len(query),
+        query,
+    )
 
     # ── 1. Query cache ────────────────────────────────────────────────────────
     cached_response = cache_manager.get_query(query)
@@ -217,6 +233,7 @@ def run_llm(query: str) -> dict[str, Any]:
 
     answer: str
 
+    low_sim = det.top_similarity < cfg.analysis.low_similarity_threshold
     if det.path == "deterministic":
         # High confidence → skip LLM entirely
         metrics.path = "deterministic"
@@ -239,7 +256,25 @@ def run_llm(query: str) -> dict[str, Any]:
         metrics.llm_output_tokens = out_tok
         metrics.llm_cache_hit = llm_cached
 
+    # Prepend a disclaimer when the query has no strong match in the knowledge base
+    if low_sim:
+        disclaimer = (
+            "> **⚠️ Low Relevance Warning:** No closely matching incidents were "
+            f"found in the knowledge base (best similarity: "
+            f"`{det.top_similarity:.3f}`, threshold: "
+            f"`{cfg.analysis.low_similarity_threshold}`). "
+            "The response below is AI-generated based on loosely related data "
+            "and **may not be accurate**. Please verify independently.\n\n"
+        )
+        answer = disclaimer + answer
+        logger.warning(
+            "Low similarity %.3f < %.2f — disclaimer prepended to answer",
+            det.top_similarity,
+            cfg.analysis.low_similarity_threshold,
+        )
+
     # ── 5. Log metrics ────────────────────────────────────────────────────────
+    metrics.low_similarity_warning = low_sim
     metrics.latency_ms = round(time.time() * 1000 - start_ms, 1)
     evaluator.log(metrics)
 
@@ -266,6 +301,7 @@ def run_llm(query: str) -> dict[str, Any]:
         ],
         "recurring_patterns": det.recurring_patterns,
         "cache_hit": False,
+        "low_similarity_warning": low_sim,
         "debug": det.debug_info,
     }
 
