@@ -226,6 +226,95 @@ def _cosine_similarity(a: list[float], b: list[float]) -> float:
     return float(np.dot(va, vb) / denom)
 
 
+# ── Stampede protection ─────────────────────────────────────────────────────
+
+
+class _InflightEntry:
+    """Tracks a single in-flight computation."""
+
+    __slots__ = ("event", "result", "error")
+
+    def __init__(self) -> None:
+        self.event = threading.Event()
+        self.result: Any = None
+        self.error: BaseException | None = None
+
+
+class QueryCoalescer:
+    """Collapse concurrent identical queries into a single computation.
+
+    Usage (in the caller)::
+
+        coalescer = QueryCoalescer()
+        key = CacheManager._query_key(query)
+
+        should_compute, entry = coalescer.acquire(key)
+        if should_compute:
+            try:
+                result = expensive_computation()
+                coalescer.resolve(key, result)
+            except BaseException as exc:
+                coalescer.reject(key, exc)
+                raise
+            return result
+        else:
+            return coalescer.wait(entry)  # blocks until first caller finishes
+    """
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._inflight: dict[str, _InflightEntry] = {}
+
+    def acquire(self, key: str) -> tuple[bool, _InflightEntry]:
+        """Try to become the computing thread for *key*.
+
+        Returns ``(True, entry)`` if this caller should compute the result.
+        Returns ``(False, entry)`` if another thread is already computing —
+        the caller should call :meth:`wait` on the returned entry.
+        """
+        with self._lock:
+            if key in self._inflight:
+                return False, self._inflight[key]
+            entry = _InflightEntry()
+            self._inflight[key] = entry
+            return True, entry
+
+    def resolve(self, key: str, result: Any) -> None:
+        """Store the computed result and wake all waiting threads."""
+        with self._lock:
+            entry = self._inflight.pop(key, None)
+        if entry is not None:
+            entry.result = result
+            entry.event.set()
+
+    def reject(self, key: str, error: BaseException) -> None:
+        """Signal failure so waiters can raise the same error."""
+        with self._lock:
+            entry = self._inflight.pop(key, None)
+        if entry is not None:
+            entry.error = error
+            entry.event.set()
+
+    def wait(self, entry: _InflightEntry, timeout: float = 30.0) -> Any:
+        """Block until the computing thread finishes, then return its result.
+
+        Args:
+            entry: The ``_InflightEntry`` returned by :meth:`acquire`.
+            timeout: Max seconds to wait (safety valve).
+
+        Raises:
+            TimeoutError: If the computing thread takes longer than *timeout*.
+            BaseException: Re-raises whatever the computing thread raised.
+        """
+        if not entry.event.wait(timeout=timeout):
+            raise TimeoutError(
+                f"Cache stampede wait exceeded {timeout}s — falling through"
+            )
+        if entry.error is not None:
+            raise entry.error
+        return entry.result
+
+
 # ── Main CacheManager ───────────────────────────────────────────────────────
 
 
@@ -240,6 +329,7 @@ class CacheManager:
         )
         self.llm_cache = _make_backend("llm", cfg.cache.llm_ttl_seconds, d)
         self.last_best_similarity: float | None = None  # best score from most recent get_query()
+        self.coalescer = QueryCoalescer()
 
     # ── Layer 1: Query cache (SEMANTIC matching) ─────────────────────────────
 

@@ -183,28 +183,16 @@ def _call_llm(query: str, context: str) -> tuple[str, int, int, bool]:
 # ── Main pipeline ─────────────────────────────────────────────────────────────
 
 
-def run_llm(query: str) -> dict[str, Any]:
-    """
-    Full RAG pipeline with deterministic analysis and multi-layer caching.
+def _run_llm_uncached(query: str) -> dict[str, Any]:
+    """Full RAG pipeline — called when no cache hit exists.
 
-    Returns a dict compatible with the Phase 1 Streamlit UI, extended with
-    Phase 2 metadata fields (confidence, path, cost_usd, clusters, …).
+    This is the expensive path: embedding → Qdrant → deterministic/LLM.
+    Separated from :func:`run_llm` so stampede protection can wrap it.
     """
     start_ms = time.time() * 1000
     metrics = QueryMetrics(query_length=len(query))
 
-    # ── 1. Query cache (exact match — fast path, no embedding needed) ────────
-    cached_response = cache_manager.get_query(query)
-    if cached_response is not None:
-        metrics.path = "query_cache"
-        metrics.query_cache_hit = True
-        metrics.latency_ms = round(time.time() * 1000 - start_ms, 1)
-        evaluator.log(metrics)
-        sim = cached_response.pop("_cache_similarity", 1.0)
-        logger.info("Query cache HIT (exact) — returning instantly (%.1f ms)", metrics.latency_ms)
-        return {**cached_response, "cache_hit": True, "latency_ms": metrics.latency_ms, "cache_similarity": sim}
-
-    # ── 2. Embedding (with cache) ─────────────────────────────────────────────
+    # ── 1. Embedding (with cache) ─────────────────────────────────────────────
     try:
         embedding, embed_tokens, embed_cached = get_embedding(query)
     except Exception as exc:
@@ -214,19 +202,7 @@ def run_llm(query: str) -> dict[str, Any]:
     metrics.embedding_tokens = embed_tokens
     metrics.embedding_cache_hit = embed_cached
 
-    # ── 2b. Query cache (semantic match — uses embedding similarity) ──────────
-    cached_response = cache_manager.get_query(query, query_embedding=embedding)
-    logger.info("Semantic cache result: %s", "HIT" if cached_response else "MISS")
-    if cached_response is not None:
-        metrics.path = "query_cache"
-        metrics.query_cache_hit = True
-        metrics.latency_ms = round(time.time() * 1000 - start_ms, 1)
-        evaluator.log(metrics)
-        sim = cached_response.pop("_cache_similarity", None)
-        logger.info("Query cache HIT (semantic, sim=%.4f) — returning (%.1f ms)", sim or 0, metrics.latency_ms)
-        return {**cached_response, "cache_hit": True, "latency_ms": metrics.latency_ms, "cache_similarity": sim}
-
-    # ── 3. Qdrant search ──────────────────────────────────────────────────────
+    # ── 2. Qdrant search ──────────────────────────────────────────────────────
     try:
         search_results = search_incidents(embedding)
     except Exception as exc:
@@ -236,7 +212,7 @@ def run_llm(query: str) -> dict[str, Any]:
     metrics.results_count = len(search_results)
     logger.debug("Qdrant returned %d results", len(search_results))
 
-    # ── 4. Deterministic analysis ─────────────────────────────────────────────
+    # ── 3. Deterministic analysis ─────────────────────────────────────────────
     det = analyze(query, search_results)
     metrics.confidence = det.confidence
     metrics.top_similarity = det.top_similarity
@@ -246,11 +222,9 @@ def run_llm(query: str) -> dict[str, Any]:
     answer: str
 
     if det.path == "deterministic":
-        # High confidence → skip LLM entirely
         metrics.path = "deterministic"
         answer = det.answer or ""
     else:
-        # Low confidence → build context and call LLM (or hit LLM cache)
         context = "\n\n---\n\n".join(
             f"Incident:\n{r.payload.get('text', '')}" for r in search_results[:5]
         )
@@ -267,7 +241,7 @@ def run_llm(query: str) -> dict[str, Any]:
         metrics.llm_output_tokens = out_tok
         metrics.llm_cache_hit = llm_cached
 
-    # ── 5. Log metrics ────────────────────────────────────────────────────────
+    # ── 4. Log metrics ────────────────────────────────────────────────────────
     metrics.latency_ms = round(time.time() * 1000 - start_ms, 1)
     evaluator.log(metrics)
 
@@ -301,3 +275,72 @@ def run_llm(query: str) -> dict[str, Any]:
     # Store in query cache with embedding for semantic matching
     cache_manager.set_query(query, response, query_embedding=embedding)
     return response
+
+
+def run_llm(query: str) -> dict[str, Any]:
+    """
+    Full RAG pipeline with deterministic analysis, multi-layer caching,
+    and stampede protection.
+
+    Returns a dict compatible with the Phase 1 Streamlit UI, extended with
+    Phase 2 metadata fields (confidence, path, cost_usd, clusters, …).
+    """
+    start_ms = time.time() * 1000
+    metrics = QueryMetrics(query_length=len(query))
+
+    # ── 1. Query cache (exact match — fast path, no embedding needed) ────────
+    cached_response = cache_manager.get_query(query)
+    if cached_response is not None:
+        metrics.path = "query_cache"
+        metrics.query_cache_hit = True
+        metrics.latency_ms = round(time.time() * 1000 - start_ms, 1)
+        evaluator.log(metrics)
+        sim = cached_response.pop("_cache_similarity", 1.0)
+        logger.info("Query cache HIT (exact) — returning instantly (%.1f ms)", metrics.latency_ms)
+        return {**cached_response, "cache_hit": True, "latency_ms": metrics.latency_ms, "cache_similarity": sim}
+
+    # ── 2. Embedding (with cache) — needed for semantic match ─────────────────
+    try:
+        embedding, embed_tokens, embed_cached = get_embedding(query)
+    except Exception as exc:
+        logger.error("Embedding failed: %s", exc)
+        raise
+
+    metrics.embedding_tokens = embed_tokens
+    metrics.embedding_cache_hit = embed_cached
+
+    # ── 2b. Query cache (semantic match — uses embedding similarity) ──────────
+    cached_response = cache_manager.get_query(query, query_embedding=embedding)
+    logger.info("Semantic cache result: %s", "HIT" if cached_response else "MISS")
+    if cached_response is not None:
+        metrics.path = "query_cache"
+        metrics.query_cache_hit = True
+        metrics.latency_ms = round(time.time() * 1000 - start_ms, 1)
+        evaluator.log(metrics)
+        sim = cached_response.pop("_cache_similarity", None)
+        logger.info("Query cache HIT (semantic, sim=%.4f) — returning (%.1f ms)", sim or 0, metrics.latency_ms)
+        return {**cached_response, "cache_hit": True, "latency_ms": metrics.latency_ms, "cache_similarity": sim}
+
+    # ── 3. Stampede protection — coalesce concurrent identical queries ─────────
+    #   Multiple users asking the same question after a cache eviction will all
+    #   miss cache.  The coalescer ensures only one thread does the expensive
+    #   Qdrant + LLM work; the rest wait and reuse the result.
+    coalesce_key = cache_manager._query_key(query)
+    should_compute, entry = cache_manager.coalescer.acquire(coalesce_key)
+
+    if not should_compute:
+        logger.info("Stampede coalesced — waiting for in-flight query: %.60s", query)
+        try:
+            return cache_manager.coalescer.wait(entry)
+        except TimeoutError:
+            logger.warning("Stampede wait timed out — falling through to compute")
+            # Fall through and compute anyway as a safety valve
+
+    # This thread is the "computing" thread — do the real work
+    try:
+        result = _run_llm_uncached(query)
+        cache_manager.coalescer.resolve(coalesce_key, result)
+        return result
+    except BaseException as exc:
+        cache_manager.coalescer.reject(coalesce_key, exc)
+        raise
